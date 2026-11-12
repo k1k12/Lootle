@@ -3,6 +3,12 @@
   "name": "lootle",
   "main": "src/worker.js",
   "compatibility_date": "2025-10-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "lootle.app", "custom_domain": true },
+    { "pattern": "www.lootle.app", "custom_domain": true }
+  ],
   // Everything in ./public is served as static files. Only /api/* runs the Worker.
   "assets": { "directory": "./public" },
   // One small SQLite-backed store per seam. Created automatically on first deploy.
