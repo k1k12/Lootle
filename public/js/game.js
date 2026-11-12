@@ -202,6 +202,7 @@
     el.play.hidden = name !== "play";
     el.summary.hidden = name !== "summary";
     el.dial.hidden = name === "summary";
+    document.body.classList.toggle("done", name === "summary");
   }
   function mode(answering) {
     el.answerForm.hidden = !answering;
@@ -337,7 +338,8 @@
         if (game.results[game.index]) return next();
         return bust("LOCKED OUT", "This safe was already settled on another screen.", false);
       }
-      say("Signal lost. That try was not counted. Try again.", true);
+      say(err.status === 429 ? "Too fast. Wait a few seconds, then try again. That try was not counted."
+        : "Signal lost. That try was not counted. Try again.", true);
       resumeClock();
       return;
     }
@@ -396,7 +398,8 @@
     persist();
     syncHud();
     centre(t.name, hit.name, "+" + money(t.k), t.color, true);
-    const share = hit.measured ? `${hit.pct}% of crews said this.` : `About ${hit.pct}% of crews are expected to say this.`;
+    const read = hit.corrected ? `Read as ${hit.name}. ` : "";
+    const share = read + (hit.measured ? `${hit.pct}% of crews said this.` : `About ${hit.pct}% of crews are expected to say this.`);
     const canRisk = !swapped && hit.deeper > 0;
     say(canRisk ? `${share} ${hit.deeper} rarer answer${hit.deeper === 1 ? "" : "s"} still in this safe.`
       : `${share}${hit.deeper ? "" : " Nothing rarer in this safe."}`);
@@ -516,7 +519,7 @@
 
   function shareText() {
     const head = game.daily ? `Lootle #${game.number}` : "Lootle practice run";
-    return `${head}: ${money(takeOf(game.results))}\n${game.results.map((r) => SQUARES[r.tier]).join("")}\n${location.origin}`;
+    return `${head}: ${money(takeOf(game.results))}\n${game.results.map((r) => SQUARES[r.tier]).join("")}\nhttps://lootle.app`;
   }
   async function share() {
     Sfx.click();

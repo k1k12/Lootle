@@ -25,7 +25,7 @@ body.alarm {
 }
 
 * { box-sizing: border-box; }
-html { color-scheme: dark; }
+html { color-scheme: dark; -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
   min-height: 100vh;
@@ -53,7 +53,9 @@ body.alarm .tape { height: 16px; }
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0 auto;
-  padding: 16px 16px 20px;
+  /* Keep clear of the iPhone notch, rounded corners and home bar. */
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   background: var(--bg);
   display: flex;
   flex-direction: column;
@@ -116,6 +118,7 @@ body.alarm .tape { height: 16px; }
 .btn.gold { background: var(--gold); color: #0b1220; box-shadow: 0 0 0 3px var(--bg), 4px 4px 0 3px var(--red); }
 .btn.red { background: var(--red); color: #fff; box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--pink); }
 .btn.wide { width: 100%; min-height: 56px; }
+.btn, .icon { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .btn:active { transform: translate(2px, 2px); }
 .btn:disabled { opacity: .5; cursor: default; }
 body.alarm #spinBtn { background: #e2475b; box-shadow: 0 0 0 3px var(--bg), 4px 4px 0 3px var(--gold); }
@@ -142,8 +145,10 @@ input.shake { animation: shake .3s steps(4); box-shadow: 0 0 0 3px #e2475b; }
 
 /* ---------- Dial ---------- */
 .dial {
-  position: relative; width: min(100%, 316px, 44vh); aspect-ratio: 1; margin: 0 auto;
+  position: relative; width: min(100%, 316px, 44vh); width: min(100%, 316px, 44dvh);
+  aspect-ratio: 1; margin: 0 auto;
   display: flex; align-items: center; justify-content: center;
+  container-type: inline-size;
 }
 .dial svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .dial .plate { fill: var(--panel); stroke: var(--edge); stroke-width: 4; transition: fill .3s; }
@@ -154,12 +159,14 @@ input.shake { animation: shake .3s steps(4); box-shadow: 0 0 0 3px #e2475b; }
 .dial.wobble svg { animation: wobble .35s ease-in-out; }
 .dial.flash .plate { animation: flash .7s ease-out; }
 .centre { position: relative; width: 58%; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
-.ctop { font: 9px/1.5 var(--px); color: var(--gold); }
-.cmain { font-size: 44px; font-weight: 900; letter-spacing: -1px; line-height: 1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.cmain.mid { font-size: 30px; }
-.cmain.long { font-size: 21px; letter-spacing: 0; }
-.csub { font: 7px/1.6 var(--px); color: var(--dim); }
-.csub.money { font: 700 22px var(--body); color: var(--green); }
+/* Text inside the dial scales with the dial (cqw = % of the dial's width). */
+.ctop { font: 9px/1.5 var(--px); font-size: max(8px, 2.9cqw); color: var(--gold); }
+.cmain { font-size: 44px; font-size: 14cqw; font-weight: 900; letter-spacing: -1px; line-height: 1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cmain.mid { font-size: 30px; font-size: 9.500cqw; }
+.cmain.long { font-size: 21px; font-size: 6.600cqw; letter-spacing: 0; }
+.csub { font: 7px/1.6 var(--px); font-size: max(7px, 2.200cqw); color: var(--dim); }
+.csub.money { font: 700 22px var(--body); font-size: 7cqw; color: var(--green); }
+#sumRank { font-size: 11px; }
 .cmain.low { color: var(--pink); }
 
 /* ---------- Summary ---------- */
@@ -191,11 +198,49 @@ summary .q { flex: 1; min-width: 0; }
 body.siren .cab { animation: siren .22s steps(2) 4; }
 @keyframes siren { 50% { background-color: #5a1522; } }
 
+/* ---------- Desktop and tablet landscape: dial on the left, game on the right ---------- */
+@media (min-width: 900px) {
+  .tape { max-width: none; }
+  .cab {
+    max-width: 1040px;
+    padding: 32px 40px 28px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
+    grid-template-rows: auto auto auto 1fr auto;
+    grid-template-areas:
+      "top  top"
+      "dial hud"
+      "dial haul"
+      "dial main"
+      "foot foot";
+    column-gap: 48px;
+    row-gap: 16px;
+    align-content: start;
+  }
+  .top { grid-area: top; padding-bottom: 8px; }
+  .logo { font-size: 26px; }
+  .hud { grid-area: hud; }
+  .haul { grid-area: haul; }
+  #intro, #play, #summary { grid-area: main; align-self: start; }
+  .dial { grid-area: dial; width: min(100%, 480px, 68vh); align-self: start; position: sticky; top: 32px; margin-top: 8px; }
+  .foot { grid-area: foot; }
+  .prompt { font-size: 24px; }
+  body.done .cab {
+    max-width: 640px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "top" "hud" "haul" "main" "foot";
+  }
+}
+/* Short screens (small phones, landscape): shrink the dial before anything else. */
+@media (max-height: 700px) and (max-width: 899px) {
+  .dial { width: min(100%, 250px, 40vh); }
+  .cab { gap: 10px; }
+}
+
 @media (max-width: 360px) {
   .logo { font-size: 15px; }
   .prompt { font-size: 19px; }
   .btn { padding: 0 12px; font-size: 10px; }
-  .cmain { font-size: 36px; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

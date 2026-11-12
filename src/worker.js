@@ -9,18 +9,26 @@
  *   POST /api/answer          check a guess, record it, return its gem and rarity
  *   POST /api/bank            lock in a seam (also used when a seam is lost)
  *   GET  /api/reveal          every answer in a seam, once that seam is locked
+ *   GET  /api/health          liveness check for uptime monitors
  */
 import { DurableObject } from "cloudflare:workers";
 import { SEAMS } from "./seams/index.js";
+import { DECOYS } from "./lexicon.js";
 import * as core from "./core.js";
 
 const BY_ID = new Map(SEAMS.map((s) => [s.id, s]));
+const LEXICON = core.buildLexicon(SEAMS, DECOYS);
 const PID = /^[a-z0-9-]{8,40}$/;
+const MAX_BODY = 2048;
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+    },
   });
 const bad = (message, status = 400) => json({ error: message }, status);
 
@@ -126,12 +134,32 @@ async function handleDig(url, env) {
 
 async function readBody(request) {
   try {
-    const body = await request.json();
-    return body && typeof body === "object" ? body : null;
+    if (Number(request.headers.get("content-length") || 0) > MAX_BODY) return null;
+    const text = await request.text();
+    if (text.length > MAX_BODY) return null;
+    const body = JSON.parse(text);
+    return body && typeof body === "object" && !Array.isArray(body) ? body : null;
   } catch (e) {
     return null;
   }
 }
+
+/**
+ * Rate limits. Two layers: a generous one per network address (shared wifi
+ * can hold many honest players) and a tight one per player on guesses, which
+ * is what stops someone brute-forcing a safe. Skipped if the bindings are
+ * missing, so local development and tests still run.
+ */
+async function overLimit(limiter, key) {
+  if (!limiter) return false;
+  try {
+    const { success } = await limiter.limit({ key });
+    return !success;
+  } catch (err) {
+    return false;
+  }
+}
+const tooMany = () => bad("Too many requests. Wait a few seconds and try again.", 429);
 
 /** Shared checks for the POST routes. Returns { seam, pid, n } or a Response. */
 function parsePlay(body) {
@@ -153,11 +181,13 @@ async function handleAnswer(request, env) {
   const play = parsePlay(body);
   if (play instanceof Response) return play;
   const { seam, pid, n } = play;
+  if (await overLimit(env.LIMIT_ANSWER, pid)) return tooMany();
   const guess = typeof body.guess === "string" ? body.guess.slice(0, 60) : "";
   const again = body.again === true;
   const db = store(env, seam.id);
 
-  const name = core.matchAnswer(seam, guess);
+  const match = core.matchDetail(seam, guess, LEXICON);
+  const name = match && match.name;
   if (!name) {
     // A missed second swing ends the seam; a missed first swing costs nothing here.
     if (again) await orElse(db.finish(pid, n), null);
@@ -178,6 +208,7 @@ async function handleAnswer(request, env) {
   return json({
     ok: true,
     name,
+    corrected: match.corrected,
     tier: mine.tier,
     pct: mine.pct,
     real,
@@ -213,6 +244,11 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/api/")) return new Response("Not found", { status: 404 });
+    if (url.pathname === "/api/health") {
+      return json({ ok: true, safes: SEAMS.length, job: core.utcDigNumber() });
+    }
+    const ip = request.headers.get("cf-connecting-ip") || "local";
+    if (await overLimit(env.LIMIT_IP, ip)) return tooMany();
     try {
       if (request.method === "GET" && url.pathname === "/api/job") return await handleDig(url, env);
       if (request.method === "GET" && url.pathname === "/api/reveal") return await handleReveal(url, env);

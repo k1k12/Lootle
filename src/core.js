@@ -18,33 +18,55 @@ export function normalise(text) {
     .replace(/^the /, "");
 }
 
+/**
+ * Edit distance that also counts swapping two neighbouring letters as one
+ * slip ("Loas" for "Laos"), since that is the most common typing mistake.
+ */
 export function editDistance(a, b) {
   if (a === b) return 0;
-  const prev = new Array(b.length + 1);
-  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  const rows = [];
+  for (let i = 0; i <= a.length; i++) {
+    rows.push(new Array(b.length + 1).fill(0));
+    rows[i][0] = i;
+  }
+  for (let j = 0; j <= b.length; j++) rows[0][j] = j;
   for (let i = 1; i <= a.length; i++) {
-    let diag = prev[0];
-    prev[0] = i;
     for (let j = 1; j <= b.length; j++) {
-      const tmp = prev[j];
-      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
-      diag = tmp;
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let best = Math.min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        best = Math.min(best, rows[i - 2][j - 2] + 1);
+      }
+      rows[i][j] = best;
     }
   }
-  return prev[b.length];
+  return rows[a.length][b.length];
 }
 
-// Typos forgiven depend on the shorter string, so "Iran" never slides into
-// "Iraq" and "Australia" never becomes "Austria".
+// How many slips we forgive depends on the shorter of the two strings.
 function allowance(a, b) {
   const n = Math.min(a.length, b.length);
+  if (n >= 14) return 3;
   if (n >= 9) return 2;
-  if (n >= 6) return 1;
+  if (n >= 4) return 1;
   return 0;
 }
 
-/** Canonical answer name for a guess, or null. Typo matches must be unambiguous. */
-export function matchAnswer(seam, input) {
+/**
+ * Spelling correction for one safe.
+ *
+ * An exact match (after normalising case, accents and punctuation) always
+ * wins. Otherwise we look for the closest accepted spelling, with three
+ * guards so a wrong answer is never "corrected" into a right one:
+ *   1. the first letter must match (people rarely mistype it, and it keeps
+ *      North/South pairs apart);
+ *   2. the guess must not itself be a known name of something else
+ *      (`lexicon`: every answer in the bank plus a list of look-alikes);
+ *   3. if two different answers are equally close, we accept neither.
+ *
+ * Returns { name, corrected } or null.
+ */
+export function matchDetail(seam, input, lexicon) {
   const guess = normalise(input);
   if (!guess) return null;
   let fuzzy = null;
@@ -53,16 +75,35 @@ export function matchAnswer(seam, input) {
   for (const [name, , ...aliases] of seam.answers) {
     for (const form of [name, ...aliases]) {
       const target = normalise(form);
-      if (target === guess) return name;
+      if (target === guess) return { name, corrected: false };
       const limit = allowance(guess, target);
-      if (!limit) continue;
+      if (!limit || target[0] !== guess[0]) continue;
       const d = editDistance(guess, target);
       if (d > limit) continue;
       if (d < fuzzyDist) { fuzzy = name; fuzzyDist = d; tie = false; }
       else if (d === fuzzyDist && fuzzy !== name) tie = true;
     }
   }
-  return fuzzy && !tie ? fuzzy : null;
+  if (!fuzzy || tie) return null;
+  if (lexicon && lexicon.has(guess)) return null;
+  return { name: fuzzy, corrected: true };
+}
+
+/** Canonical answer name for a guess, or null. */
+export function matchAnswer(seam, input, lexicon) {
+  const hit = matchDetail(seam, input, lexicon);
+  return hit ? hit.name : null;
+}
+
+/** Every accepted spelling in the bank, plus look-alike names, normalised. */
+export function buildLexicon(bank, extra = []) {
+  const words = new Set(extra.map(normalise));
+  for (const seam of bank) {
+    for (const [name, , ...aliases] of seam.answers) {
+      for (const form of [name, ...aliases]) words.add(normalise(form));
+    }
+  }
+  return words;
 }
 
 /*

@@ -22,7 +22,8 @@ dial turns and the bigger the loot.
 | `public/` | The whole front end: page, styles, dial, synthesised sound. No answers. |
 | `src/worker.js` | Cloudflare Worker: the `/api/*` routes and the per-safe store |
 | `src/seams/` | The question bank, in packs. Server only. |
-| `src/core.js` | Answer matching, rarity maths, daily selection |
+| `src/core.js` | Spelling correction, rarity maths, daily selection |
+| `src/lexicon.js` | Look-alike names that must not be auto-corrected |
 | `tests/run.js` | Checks on the bank, matching, rarity and selection |
 | `wrangler.jsonc` | Cloudflare configuration |
 | `.github/workflows/ci.yml` | Runs the checks on every push and pull request |
@@ -32,6 +33,12 @@ dial turns and the bigger the loot.
 **Answers stay on the server.** The browser receives prompts only. A guess is
 sent to `/api/answer`, and a safe's full answer list is only returned once
 that player has finished the safe.
+
+**Spelling.** Guesses are corrected on the server: case, accents and
+punctuation are ignored, and one to three slips are forgiven depending on
+length ("Kenia", "Loas", "Saskatchewen"). A guess is never corrected if it is
+itself the name of something else, so "South Korea" does not become "North
+Korea". The look-alike list lives in `src/lexicon.js`.
 
 **Rarity.** Each answer starts from a hand-set estimate. Every first answer
 in a daily job is counted, and counts are blended with the estimate, which
@@ -43,6 +50,18 @@ Durable Object) holding answer counts and which anonymous player ids have
 played it, so load is spread across safes instead of one shared database.
 Streaks and progress live in the player's browser. There are no accounts
 and no personal data.
+
+## Security and operations
+
+- Answers never reach the browser until a safe is finished.
+- Two rate limits: 300 requests a minute per network address, and 30 guesses
+  a minute per player. Requests over 2 KB are rejected.
+- Security headers on every page (`public/_headers`), including a content
+  security policy that only allows the site's own scripts.
+- `GET /api/health` returns a small status object for uptime monitors.
+- GitHub Actions runs the checks on every push; Dependabot proposes
+  dependency updates weekly.
+- The site is served only on lootle.app and www.lootle.app.
 
 ## Run it
 

@@ -2,6 +2,9 @@
 import assert from "node:assert/strict";
 import * as core from "../src/core.js";
 import { SEAMS as bank } from "../src/seams/index.js";
+import { DECOYS } from "../src/lexicon.js";
+
+const lexicon = core.buildLexicon(bank, DECOYS);
 
 let checks = 0;
 const ok = (cond, msg) => { checks++; assert.ok(cond, msg); };
@@ -37,7 +40,7 @@ for (const s of bank) {
 }
 
 // --- Matching -------------------------------------------------------------
-const m = (id, text) => core.matchAnswer(seam(id), text);
+const m = (id, text) => core.matchAnswer(seam(id), text, lexicon);
 const tierOf = (id, text) => core.rarity(seam(id)).rows.find((r) => r.name === m(id, text)).tier;
 ok(m("germany-borders", "  the NETHERLANDS ") === "Netherlands", "case/article/space");
 ok(m("germany-borders", "Luxemburg") === "Luxembourg", "one-letter typo");
@@ -54,6 +57,25 @@ ok(tierOf("henry-wives", "Katherine Parr") === 6, "spelling variant");
 ok(m("china-borders", "Kyrgistan") === "Kyrgyzstan", "two typos on long name");
 ok(m("germany-borders", "") === null, "empty input");
 ok(m("germany-borders", "Spain") === null, "wrong answer");
+
+// --- Spelling correction ---------------------------------------------------
+ok(m("k-countries", "Kenia") === "Kenya", "one slip on a short name");
+ok(m("china-borders", "Loas") === "Laos", "swapped letters");
+ok(m("south-american-capitals", "Buenes Aires") === "Buenos Aires", "slip in a two-word name");
+ok(m("canada-provinces", "Saskatchewen") === "Saskatchewan", "slip in a long name");
+ok(m("emirates", "Ras al Kaimah") === "Ras Al Khaimah", "missing letter");
+ok(core.matchDetail(seam("k-countries"), "Kenia", lexicon).corrected === true, "corrections are flagged");
+ok(core.matchDetail(seam("k-countries"), "kenya", lexicon).corrected === false, "exact answers are not flagged");
+// A different real place must never be "corrected" into a right answer.
+ok(m("china-borders", "South Korea") === null, "South Korea is not North Korea");
+ok(m("n-states", "South Dakota") === null, "South Dakota is not North Dakota");
+ok(m("n-states", "South Carolina") === null, "South Carolina is not North Carolina");
+ok(m("danube", "Slovenia") === null, "Slovenia is not Slovakia");
+ok(m("landlocked-africa", "Nigeria") === null, "Nigeria is not Niger (lexicon)");
+ok(m("a-countries", "Australia") === "Australia" && m("danube", "Australia") === null, "Australia vs Austria");
+ok(m("olympians", "Hades") === null, "Hades stays out");
+ok(m("logic-gates", "xnor") === "XNOR" && m("logic-gates", "nor") === "NOR", "short answers stay exact");
+ok(core.editDistance("laos", "loas") === 1 && core.editDistance("kitten", "sitting") === 3, "distance");
 
 // --- Daily selection ------------------------------------------------------
 const perCycle = Math.floor(bank.length / core.SEAMS_PER_DIG);
