@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lootle",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-10-01",
+  // Everything in ./public is served as static files. Only /api/* runs the Worker.
+  "assets": { "directory": "./public" },
+  // One small SQLite-backed store per seam. Created automatically on first deploy.
+  "durable_objects": {
+    "bindings": [{ "name": "SEAM", "class_name": "SeamStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SeamStore"] }],
+  "observability": { "enabled": true }
+}
