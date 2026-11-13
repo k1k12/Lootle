@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in the game is broken or looks wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and what you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and browser
+      placeholder: iPhone 15, Safari
+    validations:
+      required: true
+  - type: input
+    id: job
+    attributes:
+      label: Job number
+      description: Shown on the results screen, if you got that far.
+  - type: textarea
+    id: shots
+    attributes:
+      label: Screenshots
+      description: Drag images in here if they help.

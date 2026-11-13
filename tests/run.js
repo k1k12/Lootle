@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import * as core from "../src/core.js";
 import { PACKS, SEAMS as bank } from "../src/seams/index.js";
 import { DECOYS } from "../src/lexicon.js";
+import { ITEMS, MAX_BUY, catalogue } from "../src/shop.js";
 
 const lexicon = core.buildLexicon(bank, DECOYS);
 
@@ -127,6 +128,23 @@ for (const s of bank) {
   ok(core.rarity(g, { NotAnAnswer: 99 }).real === 0, "unknown keys are ignored");
   // A few early answers must not knock a Diamond down.
   ok(core.rarity(g, { Luxembourg: 2 }).rows.find((r) => r.name === "Luxembourg").tier === 6, "early answers do not flip a gem");
+}
+
+{
+  // The shop: loot values line up with the tiers, and nothing is free or a sure thing.
+  ok(core.TIER_K.length === 7 && core.TIER_K[0] === 0, "one payout per tier, nothing for a bust");
+  for (let t = 1; t < 7; t++) ok(core.TIER_K[t] > core.TIER_K[t - 1], `tier ${t} pays more than tier ${t - 1}`);
+  for (const [id, item] of Object.entries(ITEMS)) {
+    ok(Number.isInteger(item.price) && item.price > 0, `${id} has a whole, positive price`);
+    ok(["throw", "time", "blast"].includes(item.kind), `${id} has a known kind`);
+    if (item.kind === "throw") ok(item.luck > 0 && item.luck <= 0.01, `${id} is a long shot`);
+    if (item.kind === "time") ok(item.seconds >= 1 && item.seconds <= 5, `${id} adds a few seconds`);
+  }
+  const perfectDay = 7 * core.TIER_K[6];
+  ok(ITEMS.dynamite.price > core.TIER_K[6], "dynamite costs more than the best safe pays");
+  ok(ITEMS.dynamite.price <= perfectDay, "a perfect day can afford dynamite");
+  ok(catalogue().length === Object.keys(ITEMS).length && catalogue().every((i) => !("luck" in i)), "the catalogue lists everything without the odds table");
+  ok(MAX_BUY >= 10, "handfuls of ten can be bought");
 }
 
 console.log(`All ${checks} checks passed across ${bank.length} safes.`);

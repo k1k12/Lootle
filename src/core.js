@@ -3,6 +3,8 @@
  * Pure functions, shared by the Worker and the tests.
  */
 export const TIER_NAMES = [null, "Loose change", "Cash", "Gold bar", "Painting", "Crown jewels", "The big score"];
+// What each loot tier pays, in thousands of dollars. Tier 0 is an empty safe.
+export const TIER_K = [0, 10, 20, 35, 50, 70, 100];
 export const SEAMS_PER_DIG = 7;
 export const EPOCH = Date.UTC(2026, 10, 12); // Dig #1
 

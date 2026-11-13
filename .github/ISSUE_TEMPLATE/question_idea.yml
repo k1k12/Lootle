@@ -1,0 +1,24 @@
+name: Question idea
+description: Suggest a new safe
+labels: [questions]
+body:
+  - type: input
+    id: prompt
+    attributes:
+      label: The question
+      description: It needs a fixed list of right answers, ideally three or more.
+      placeholder: Name one of the Great Lakes.
+    validations:
+      required: true
+  - type: textarea
+    id: answers
+    attributes:
+      label: The answers
+      description: List every right answer, most obvious first.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Where the full list can be checked.

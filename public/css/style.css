@@ -172,6 +172,52 @@ body.alarm #spinBtn { background: #e2475b; box-shadow: 4px 4px 0 var(--gold); }
 .risk { margin: 0; font-size: 16px; font-weight: 500; color: #ffd0d6; }
 .risk b { color: var(--gold); }
 
+/* ---------- Items: the tray under the answer box, and dynamite's three choices ---------- */
+.tray { display: flex; gap: 8px; flex-wrap: wrap; }
+.tray button {
+  min-height: 44px; padding: 0 10px; border: 0; cursor: pointer;
+  background: var(--panel); color: var(--ink); box-shadow: inset 0 0 0 2px var(--edge-2);
+  font: 700 15px var(--body); display: flex; align-items: center; gap: 6px;
+  touch-action: manipulation;
+}
+.tray button:hover { box-shadow: inset 0 0 0 2px var(--gold); }
+.tray button:disabled { opacity: .45; cursor: default; }
+.tray .emo { font-size: 20px; line-height: 1; }
+.tray small { font: 7px var(--px); color: var(--dim); }
+.options { display: grid; gap: 10px; animation: rise .25s ease-out; }
+.options button {
+  min-height: 52px; padding: 0 14px; border: 0; cursor: pointer; text-align: left;
+  background: var(--panel); color: var(--ink); box-shadow: inset 0 0 0 3px #e2475b;
+  font: 700 18px var(--body);
+}
+.options button:hover { background: var(--edge); }
+.options button.dud { opacity: .4; text-decoration: line-through; box-shadow: inset 0 0 0 3px var(--edge-2); }
+.haul i.helped { outline: 2px dotted #e2475b; outline-offset: 1px; }
+
+/* Things in flight, and what they leave on the door. */
+.fly { position: fixed; z-index: 6; font-size: 34px; line-height: 1; pointer-events: none; will-change: transform; }
+.splat {
+  position: fixed; z-index: 4; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 46% 54% 60% 40%;
+  pointer-events: none; animation: splat 2.2s ease-out forwards;
+}
+
+/* ---------- The fence (shop) ---------- */
+.shophead { display: flex; align-items: center; justify-content: space-between; }
+.shoplist { display: flex; flex-direction: column; gap: 2px; max-height: min(64vh, 540px); overflow-y: auto; }
+.shoplist .item { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--edge); }
+.shoplist .emo { font-size: 28px; grid-row: span 2; text-align: center; }
+.shoplist .nm { font-weight: 700; font-size: 16px; }
+.shoplist .nm small { font: 500 13px var(--body); color: var(--dim); margin-left: 6px; }
+.shoplist .bl { grid-column: 2; font-size: 13px; color: var(--dim); }
+.shoplist .buy { grid-row: 1 / span 2; grid-column: 3; display: flex; gap: 6px; }
+.shoplist .buy button {
+  min-height: 44px; min-width: 62px; padding: 0 8px; border: 0; cursor: pointer;
+  background: var(--gold); color: #0b1220; font: 8px/1.5 var(--px); box-shadow: 3px 3px 0 var(--red);
+}
+.shoplist .buy button:disabled { background: var(--edge-2); color: var(--dim); box-shadow: none; cursor: default; }
+.shoplist .buy button:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--red); }
+#shop.poor .take { animation: shake .3s steps(4); color: var(--pink); }
+
 /* ---------- Dial ---------- */
 .dial {
   position: relative; width: min(calc(100% - 68px), 310px, 42vh); width: min(calc(100% - 68px), 310px, 42dvh);
@@ -269,6 +315,7 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; animation: rise
 @keyframes land { 0% { transform: scale(.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
 @keyframes pip { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+@keyframes splat { 0% { transform: scale(.2); opacity: .95; } 12% { transform: scale(1.15); } 60% { opacity: .8; } 100% { transform: scale(1) translateY(26px) scaleY(1.5); opacity: 0; } }
 @keyframes sway { to { translate: 0 26px; rotate: 2.500deg; } }
 @keyframes stamp { from { transform: rotate(-4deg) scale(2.4); opacity: 0; } }
 @keyframes turn { to { transform: rotate(360deg); } }
@@ -342,7 +389,7 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; animation: rise
   .haul { gap: 3px; }
   .haul i { width: 13px; height: 13px; }
   .take { font-size: 17px; min-width: 54px; }
-  .icon { width: 30px; }
+  .icon { width: 26px; }
 }
 @media (max-width: 360px) {
   .prompt { font-size: 20px; }
