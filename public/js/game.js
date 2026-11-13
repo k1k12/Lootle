@@ -439,7 +439,7 @@
     if (!risk) game.assisted = false;
     el.options.hidden = true;
     el.options.innerHTML = "";
-    el.safeCat.textContent = `${game.daily ? "SAFE" : "PRACTICE"} ${game.index + 1} · ${risk ? "SECOND SPIN" : safe.cat.toUpperCase()}`;
+    el.safeCat.textContent = `${game.daily ? "SAFE" : "PRACTICE"} ${game.index + 1} · ${risk ? "SECOND SPIN" : safe.size ? `THE VAULT \u00b7 ${safe.size} ANSWERS` : safe.cat.toUpperCase()}`;
     el.prompt.textContent = safe.prompt;
     el.answer.value = "";
     el.answer.placeholder = risk ? "Something rarer" : "Your answer";

@@ -17,7 +17,7 @@
  *   GET  /api/health          liveness check for uptime monitors
  */
 import { DurableObject } from "cloudflare:workers";
-import { PACKS, SEAMS } from "./seams/index.js";
+import { PACKS, VAULTS, SEAMS } from "./seams/index.js";
 import { DECOYS } from "./lexicon.js";
 import { ITEMS, MAX_BUY, catalogue } from "./shop.js";
 import * as core from "./core.js";
@@ -214,8 +214,13 @@ function validDaily(n) {
   return Number.isInteger(n) && n >= 1 && n >= today - 1 && n <= today + 1;
 }
 
+const VAULT_IDS = new Set(VAULTS.flat().map((s) => s.id));
+
+/** What the browser may know about a safe. Vault safes also say how big the list is. */
 function publicSeam(seam) {
-  return { id: seam.id, cat: seam.cat, prompt: seam.prompt };
+  const out = { id: seam.id, cat: seam.cat, prompt: seam.prompt };
+  if (VAULT_IDS.has(seam.id)) out.size = seam.answers.length;
+  return out;
 }
 
 async function handleJob(url, env) {
@@ -227,7 +232,7 @@ async function handleJob(url, env) {
   }
   const n = Number(url.searchParams.get("n"));
   if (!validDaily(n)) return bad("That job is not open.", 404);
-  return json({ number: n, seams: core.seamsForDig(PACKS, n).map(publicSeam) });
+  return json({ number: n, seams: core.safesForJob(PACKS, VAULTS, n).map(publicSeam) });
 }
 
 async function readBody(request) {
@@ -269,7 +274,7 @@ function parsePlay(body) {
   if (!PID.test(pid)) return bad("Bad player id.");
   if (n !== 0) {
     if (!validDaily(n)) return bad("That job is not open.", 404);
-    if (!core.seamsForDig(PACKS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
+    if (!core.safesForJob(PACKS, VAULTS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
   }
   return { seam, pid, n };
 }
