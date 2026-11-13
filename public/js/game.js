@@ -1015,10 +1015,12 @@
       const crews = r.players.toLocaleString("en-GB");
       job.crowd = r.players < 5 ? ""
         : r.place === 1 ? `Top score so far out of ${crews} crews`
+        : r.beat === 0 ? ""
         : `Beat ${r.beat}% of ${crews} crews`;
       el.sumCrowd.textContent = r.players < 5
         ? `You are crew number ${crews} to finish tonight's job. Share it to bring in some competition.`
         : r.place === 1 ? `Top score so far tonight, out of ${crews} crews.`
+        : r.beat === 0 ? `${crews} crews have finished tonight. Plenty of room to climb tomorrow.`
         : `You beat ${r.beat}% of the ${crews} crews who have finished tonight.`;
     } catch (err) { /* the results still stand without it */ }
   }
