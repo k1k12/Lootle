@@ -101,7 +101,9 @@ than measured.
 ### Storage
 
 Each safe has its own small SQLite database (a Durable Object) holding the
-answer counts and which anonymous player ids have played it. A second store per player
+answer counts and which anonymous player ids have played it. A third store per daily job keeps
+every finisher's total, which is how the results screen can say what share
+of players you beat. A second store per player
 id holds the stash and bought items, so they cannot be edited in the
 browser. Streaks and
 progress are kept in the player's browser. There are no accounts and no

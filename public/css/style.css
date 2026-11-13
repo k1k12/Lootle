@@ -404,3 +404,6 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; animation: rise
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+.crowd { color: #7be0b0; font-weight: 700; }
+.crowd:empty { display: none; }
