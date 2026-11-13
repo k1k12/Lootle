@@ -42,6 +42,7 @@
       <button id="startDaily" class="btn gold big" type="button">BREAK IN</button>
       <div class="links">
         <button id="startFree" class="link" type="button">Practice run</button>
+        <button id="archiveLink" class="link" type="button">Archive</button>
         <button id="howLink" class="link" type="button">The plan</button>
         <button id="shopLink" class="link" type="button">Shop</button>
       </div>
@@ -125,11 +126,19 @@
         <button id="share" class="btn gold" type="button">COPY RESULT</button>
         <button id="sumShop" class="btn" type="button">SPEND IT</button>
         <button id="freeAgain" class="btn" type="button">PRACTICE RUN</button>
+        <button id="sumArchive" class="btn" type="button">ARCHIVE</button>
       </div>
       <p class="small" id="sumStats" aria-live="polite"></p>
       <div id="safeList"></div>
     </section>
   </main>
+
+  <dialog id="archive" aria-labelledby="archiveTitle">
+    <h2 id="archiveTitle" class="cat">THE ARCHIVE</h2>
+    <p class="small" id="archiveNote">Old jobs, free to play once each. No stash money and no streak.</p>
+    <div class="joblist" id="jobList"></div>
+    <button id="archiveClose" class="btn gold" type="button">DONE</button>
+  </dialog>
 
   <dialog id="how" aria-labelledby="howTitle">
     <h2 id="howTitle" class="cat">THE PLAN</h2>
