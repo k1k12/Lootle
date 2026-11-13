@@ -17,12 +17,15 @@
     "bindings": [
       { "name": "SEAM", "class_name": "SeamStore" },
       // One store per player: their stash, items and which safes have paid out.
-      { "name": "PLAYER", "class_name": "PlayerStore" }
+      { "name": "PLAYER", "class_name": "PlayerStore" },
+      // One store per daily job: every finisher's take, for "you beat X%".
+      { "name": "JOB", "class_name": "JobStore" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["SeamStore"] },
-    { "tag": "v2", "new_sqlite_classes": ["PlayerStore"] }
+    { "tag": "v2", "new_sqlite_classes": ["PlayerStore"] },
+    { "tag": "v3", "new_sqlite_classes": ["JobStore"] }
   ],
   // Rate limits (counted per Cloudflare location, so treat them as approximate).
   "ratelimits": [
