@@ -12,7 +12,7 @@
  *   GET  /api/health          liveness check for uptime monitors
  */
 import { DurableObject } from "cloudflare:workers";
-import { SEAMS } from "./seams/index.js";
+import { PACKS, SEAMS } from "./seams/index.js";
 import { DECOYS } from "./lexicon.js";
 import * as core from "./core.js";
 
@@ -129,7 +129,7 @@ async function handleDig(url, env) {
   }
   const n = Number(url.searchParams.get("n"));
   if (!validDaily(n)) return bad("That job is not open.", 404);
-  return json({ number: n, seams: core.seamsForDig(SEAMS, n).map(publicSeam) });
+  return json({ number: n, seams: core.seamsForDig(PACKS, n).map(publicSeam) });
 }
 
 async function readBody(request) {
@@ -171,7 +171,7 @@ function parsePlay(body) {
   if (!PID.test(pid)) return bad("Bad player id.");
   if (n !== 0) {
     if (!validDaily(n)) return bad("That job is not open.", 404);
-    if (!core.seamsForDig(SEAMS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
+    if (!core.seamsForDig(PACKS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
   }
   return { seam, pid, n };
 }
