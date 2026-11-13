@@ -1,7 +1,7 @@
 // Run with: node tests/run.js
 import assert from "node:assert/strict";
 import * as core from "../src/core.js";
-import { SEAMS as bank } from "../src/seams/index.js";
+import { PACKS, SEAMS as bank } from "../src/seams/index.js";
 import { DECOYS } from "../src/lexicon.js";
 
 const lexicon = core.buildLexicon(bank, DECOYS);
@@ -78,18 +78,32 @@ ok(m("logic-gates", "xnor") === "XNOR" && m("logic-gates", "nor") === "NOR", "sh
 ok(core.editDistance("laos", "loas") === 1 && core.editDistance("kitten", "sitting") === 3, "distance");
 
 // --- Daily selection ------------------------------------------------------
-const perCycle = Math.floor(bank.length / core.SEAMS_PER_DIG);
-for (let cycle = 0; cycle < 4; cycle++) {
+const firstPass = PACKS.reduce((sum, pack) => sum + Math.floor(pack.length / 7), 0);
+{
   const used = new Set();
-  for (let d = 1; d <= perCycle; d++) {
-    const picks = core.seamsForDig(bank, cycle * perCycle + d);
-    ok(picks.length === 7, "seven seams per dig");
-    picks.forEach((p) => used.add(p.id));
+  for (let d = 1; d <= firstPass; d++) {
+    const picks = core.seamsForDig(PACKS, d);
+    ok(picks.length === 7, "seven safes per job");
+    ok(new Set(picks.map((p) => p.id)).size === 7, "no repeats within a job");
+    picks.forEach((p) => { ok(!used.has(p.id), `safe ${p.id} repeated in the first pass`); used.add(p.id); });
   }
-  ok(used.size === perCycle * core.SEAMS_PER_DIG, `cycle ${cycle} never repeats a safe`);
+  ok(firstPass >= 21, "at least three weeks before any repeat");
+  // Later passes: still seven a day, no repeats within a pass.
+  const perPass = Math.floor(bank.length / 7);
+  const seen = new Set();
+  for (let d = firstPass + 1; d <= firstPass + perPass; d++) {
+    const picks = core.seamsForDig(PACKS, d);
+    ok(picks.length === 7, "seven safes per job in later passes");
+    picks.forEach((p) => { ok(!seen.has(p.id), "no repeats within a later pass"); seen.add(p.id); });
+  }
+  // Appending a pack must not change any day already dealt.
+  const before = Array.from({ length: firstPass }, (_, i) => core.seamsForDig(PACKS, i + 1).map((s) => s.id).join());
+  const extra = Array.from({ length: 14 }, (_, i) => ({ id: "x" + i, cat: "Test", prompt: "x.", answers: [["a", 1], ["b", 3], ["c", 6]] }));
+  const grown = [...PACKS, extra];
+  const after = Array.from({ length: firstPass }, (_, i) => core.seamsForDig(grown, i + 1).map((s) => s.id).join());
+  ok(JSON.stringify(before) === JSON.stringify(after), "adding a pack keeps earlier days unchanged");
+  ok(core.seamsForDig(grown, firstPass + 1).every((s) => s.id.startsWith("x")), "new pack is dealt next");
 }
-ok(JSON.stringify(core.seamsForDig(bank, 3).map((s) => s.id)) ===
-   JSON.stringify(core.seamsForDig(bank, 3).map((s) => s.id)), "selection is deterministic");
 ok(core.utcDigNumber(Date.UTC(2026, 10, 12, 9)) === 1, "launch day is dig #1");
 ok(core.utcDigNumber(Date.UTC(2026, 10, 13, 0, 0, 1)) === 2, "next day is dig #2");
 

@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://lootle.app/">
   <meta property="og:url" content="https://lootle.app/">
   <title>Lootle: the daily heist</title>
-  <meta name="description" content="A daily trivia heist. Seven safes a night. The rarer your answer, the further the dial turns and the bigger the loot. Spin again for more, if you dare risk the alarm.">
+  <meta name="description" content="A daily trivia heist. Seven safes a night. The rarer your answer, the further the dial turns and the bigger the loot.">
   <meta name="theme-color" content="#0b1220">
   <meta property="og:title" content="Lootle: the daily heist">
   <meta property="og:description" content="Seven safes a night. Rarer answers crack bigger loot.">
@@ -20,64 +20,69 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rubik:wght@500;700;900&display=swap">
   <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="at-intro">
+  <div class="lasers" aria-hidden="true"><i></i><i></i><i></i></div>
+  <canvas id="fx" aria-hidden="true"></canvas>
   <div class="tape" aria-hidden="true"></div>
   <main class="cab">
     <header class="top">
       <h1 class="logo">LOOTLE</h1>
-      <span class="tag" id="jobLabel"></span>
+      <div class="haul" id="haul" role="img" aria-label="Loot so far"></div>
+      <b class="take" id="take" aria-label="Take so far">$0K</b>
+      <button id="help" class="icon" type="button" aria-label="How to play">?</button>
       <button id="mute" class="icon" type="button" aria-pressed="false" aria-label="Sound on">
-        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="muteWave" d="M17 9c1.500 1.500 1.500 4.500 0 6"/><path id="muteX" d="M17 9l5 6M22 9l-5 6" hidden/></svg>
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="muteWave" d="M17 9c1.500 1.500 1.500 4.500 0 6"/><path id="muteX" d="M17 9l5 6M22 9l-5 6" hidden/></svg>
       </button>
     </header>
 
-    <div class="hud">
-      <div><span>TAKE</span><b id="take" class="green">$0K</b></div>
-      <div><span>SAFE</span><b id="safeNo">- / 7</b></div>
-      <div><span>TRIES</span><div class="tries" id="tries" role="img" aria-label="3 tries left"><i></i><i></i><i></i></div></div>
-    </div>
-    <div class="haul" id="haul" role="img" aria-label="Loot so far"></div>
-
-    <!-- Intro -->
-    <section id="intro" class="box">
-      <p class="big">Seven safes a night. Each has lots of right answers. The fewer crews who give yours, the further the dial turns and the bigger the loot.</p>
-      <div class="row">
-        <button id="startDaily" class="btn gold" type="button">START THE JOB</button>
-        <button id="startFree" class="btn" type="button">PRACTICE RUN</button>
+    <!-- Intro: deliberately quiet -->
+    <section id="intro">
+      <p class="tagline">Seven safes. One night. The rarer your answer, the bigger the loot.</p>
+      <button id="startDaily" class="btn gold big" type="button">BREAK IN</button>
+      <div class="links">
+        <button id="startFree" class="link" type="button">Practice run</button>
+        <button id="howLink" class="link" type="button">The plan</button>
       </div>
-      <ul class="rules">
-        <li><b>30 seconds, 3 tries</b> per safe.</li>
-        <li><b>Grab it, or spin again.</b> One more answer for bigger loot. Land on something more common, repeat yourself or miss, and the alarm trips: that safe pays nothing.</li>
-        <li><b>A perfect night is $700K.</b></li>
-      </ul>
-      <div class="ladder" id="ladder"></div>
       <p class="small" id="statsLine"></p>
     </section>
 
     <!-- Play -->
     <section id="play" hidden>
-      <div class="box light">
-        <div class="cat" id="safeCat"></div>
-        <h2 class="prompt" id="prompt"></h2>
-      </div>
+      <div class="cat" id="safeCat"></div>
+      <h2 class="prompt" id="prompt"></h2>
       <p class="risk" id="risk" hidden></p>
       <form id="answerForm" autocomplete="off">
         <label class="sr" for="answer">Your answer</label>
-        <input id="answer" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="60" placeholder="Type your answer" enterkeyhint="go">
-        <button class="btn gold" type="submit" id="spinBtn">SPIN</button>
+        <input id="answer" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="60" placeholder="Your answer" enterkeyhint="go">
+        <button class="btn gold" type="submit" id="spinBtn">CRACK</button>
       </form>
       <div class="actions" id="actions" hidden>
-        <button id="next" class="btn gold wide" type="button">GRAB IT AND GO</button>
-        <button id="again" class="btn red wide" type="button">SPIN AGAIN · RISK IT</button>
+        <button id="next" class="btn gold wide" type="button">GRAB IT</button>
+        <button id="again" class="btn red wide" type="button">RISK IT</button>
       </div>
-      <p class="feedback" id="feedback" aria-live="assertive"></p>
+      <div class="under">
+        <div class="tries" id="tries" role="img" aria-label="3 tries left"></div>
+        <p class="feedback" id="feedback" aria-live="assertive"></p>
+      </div>
     </section>
 
     <!-- The dial -->
     <div class="dial" id="dial">
       <svg viewBox="0 0 340 340" role="img" aria-label="Safe dial">
+        <!-- the safe door: frame, hinges, rivets and eight locking bolts -->
+        <rect x="-16" y="-16" width="372" height="372" rx="30" class="door"/>
+        <rect x="-30" y="62" width="20" height="50" rx="4" class="hinge"/>
+        <rect x="-30" y="228" width="20" height="50" rx="4" class="hinge"/>
+        <g class="rivets"><circle cx="8" cy="8" r="5"/><circle cx="332" cy="8" r="5"/><circle cx="8" cy="332" r="5"/><circle cx="332" cy="332" r="5"/></g>
+        <g id="bolts" class="bolts">
+          <rect x="163" y="-8" width="14" height="22"/><rect x="163" y="326" width="14" height="22"/>
+          <rect x="-8" y="163" width="22" height="14"/><rect x="326" y="163" width="22" height="14"/>
+          <rect x="163" y="-8" width="14" height="22" transform="rotate(45 170 170)"/><rect x="163" y="-8" width="14" height="22" transform="rotate(135 170 170)"/>
+          <rect x="163" y="-8" width="14" height="22" transform="rotate(225 170 170)"/><rect x="163" y="-8" width="14" height="22" transform="rotate(315 170 170)"/>
+        </g>
+        <circle class="wave" id="wave" cx="170" cy="170" r="150"/>
         <circle cx="170" cy="170" r="162" class="plate"/>
-        <g id="segs" fill="none" stroke-width="20" opacity=".3" transform="rotate(-90 170 170)">
+        <g id="segs" fill="none" stroke-width="20" transform="rotate(-90 170 170)">
           <circle cx="170" cy="170" r="138" stroke="#c9c3e6" stroke-dasharray="136 731" stroke-dashoffset="-4"/>
           <circle cx="170" cy="170" r="138" stroke="#7ef0c1" stroke-dasharray="136 731" stroke-dashoffset="-148.500"/>
           <circle cx="170" cy="170" r="138" stroke="#ffd166" stroke-dasharray="136 731" stroke-dashoffset="-293"/>
@@ -92,32 +97,48 @@
         </g>
         <circle id="arc" cx="170" cy="170" r="138" fill="none" stroke="#ffd166" stroke-width="20" stroke-linecap="round" stroke-dasharray="0 868" transform="rotate(-90 170 170)"/>
         <g id="knob"><circle cx="170" cy="32" r="15" class="knob"/></g>
-        <circle cx="170" cy="170" r="108" class="hub"/>
+        <circle cx="170" cy="170" r="112" class="hub"/>
+        <g id="ticks"><circle cx="170" cy="170" r="112" class="ticks"/><circle cx="170" cy="170" r="110" class="ticks major"/></g>
+        <circle id="timeRing" cx="170" cy="170" r="100" class="timering" transform="rotate(-90 170 170)"/>
         <path d="M159 4h22l-11 18z" class="pointer"/>
       </svg>
       <div class="centre" aria-live="polite">
-        <div class="ctop" id="cTop">TONIGHT</div>
+        <div class="cicon" id="cIcon" aria-hidden="true"></div>
+        <div class="ctop" id="cTop"></div>
         <div class="cmain" id="cMain">7 SAFES</div>
-        <div class="csub" id="cSub">RARER TURNS FURTHER</div>
+        <div class="csub" id="cSub"></div>
       </div>
     </div>
 
     <!-- Summary -->
-    <section id="summary" class="box" hidden>
-      <div class="ctop gold" id="sumRank" tabindex="-1"></div>
+    <section id="summary" hidden>
+      <div class="cat">THE TAKE</div>
       <div class="total" id="sumTotal"></div>
-      <p class="big" id="sumLine"></p>
+      <div class="stamp" id="sumRank" tabindex="-1"></div>
+      <p class="small" id="sumLine"></p>
       <div class="row">
         <button id="share" class="btn gold" type="button">COPY RESULT</button>
         <button id="freeAgain" class="btn" type="button">PRACTICE RUN</button>
       </div>
       <p class="small" id="sumStats" aria-live="polite"></p>
-      <h3 class="cat">WHAT WAS IN EACH SAFE</h3>
       <div id="safeList"></div>
     </section>
-
-    <footer class="small foot">Rarity starts from an estimate and shifts with every real answer.</footer>
   </main>
+
+  <dialog id="how" aria-labelledby="howTitle">
+    <h2 id="howTitle" class="cat">THE PLAN</h2>
+    <ul class="rules">
+      <li>Every safe has lots of right answers. Give one.</li>
+      <li>The fewer people who say yours, the further the dial turns.</li>
+      <li>30 seconds and 3 tries per safe.</li>
+      <li><b>Grab it</b> to keep your loot, or <b>risk it</b>: one more answer. Rarer swaps you up. Anything else trips the alarm and the safe pays nothing.</li>
+      <li>You get 10 seconds to choose, then 20 seconds for the risk answer.</li>
+    </ul>
+    <div class="ladder" id="ladder"></div>
+    <p class="small">Rarity starts as an estimate and shifts with every real answer.</p>
+    <button id="howClose" class="btn gold" type="button">I'M IN</button>
+  </dialog>
+
   <script src="js/game.js"></script>
 </body>
 </html>

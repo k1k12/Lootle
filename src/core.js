@@ -172,14 +172,56 @@ export function utcDigNumber(now = Date.now()) {
   return Math.floor((now - EPOCH) / 86400000) + 1;
 }
 
-/** The bank is shuffled once per cycle and dealt out seven at a time. */
-export function seamsForDig(bank, number) {
-  const perCycle = Math.floor(bank.length / SEAMS_PER_DIG);
+/**
+ * Deal a list into days of seven, shuffled, with at most three safes from one
+ * category in a day where the list allows it. Leftovers (fewer than seven)
+ * are dropped.
+ */
+export function deal(list, rand) {
+  const pool = shuffled(list, rand);
+  const days = [];
+  while (pool.length >= SEAMS_PER_DIG) {
+    const day = [];
+    const perCat = {};
+    for (let cap = 3; day.length < SEAMS_PER_DIG; cap++) {
+      for (let i = 0; i < pool.length && day.length < SEAMS_PER_DIG; ) {
+        const cat = pool[i].cat;
+        if ((perCat[cat] || 0) < cap) {
+          perCat[cat] = (perCat[cat] || 0) + 1;
+          day.push(pool.splice(i, 1)[0]);
+        } else {
+          i++;
+        }
+      }
+    }
+    days.push(day);
+  }
+  return days;
+}
+
+const scheduleCache = new WeakMap();
+
+/**
+ * The schedule.
+ *
+ * First pass: each pack is dealt on its own, in pack order, so adding a new
+ * pack to the end only adds days and never changes a day already dealt.
+ * After every pack has been played once, later passes deal the whole bank
+ * together with a fresh shuffle each time.
+ */
+export function seamsForDig(packs, number) {
+  let first = scheduleCache.get(packs);
+  if (!first) {
+    first = packs.flatMap((pack, i) => deal(pack, mulberry32(0xd1661e + i)));
+    scheduleCache.set(packs, first);
+  }
   const index = Math.max(0, number - 1);
-  const cycle = Math.floor(index / perCycle);
-  const slot = index % perCycle;
-  const order = shuffled(bank, mulberry32(0xd1661e + cycle));
-  return order.slice(slot * SEAMS_PER_DIG, (slot + 1) * SEAMS_PER_DIG);
+  if (index < first.length) return first[index];
+  const all = packs.flat();
+  const perPass = Math.floor(all.length / SEAMS_PER_DIG);
+  const later = index - first.length;
+  const pass = Math.floor(later / perPass);
+  return deal(all, mulberry32(0x5afe00 + pass))[later % perPass];
 }
 
 export function randomSeams(bank) {
