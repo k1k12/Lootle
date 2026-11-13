@@ -26,7 +26,7 @@ body.alarm {
 }
 
 * { box-sizing: border-box; }
-html { color-scheme: dark; -webkit-text-size-adjust: 100%; }
+html { color-scheme: dark; -webkit-text-size-adjust: 100%; overflow-x: hidden; }
 body {
   margin: 0;
   min-height: 100vh;
@@ -41,6 +41,26 @@ body {
 }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 [hidden] { display: none !important; }
+
+/* Faint blueprint grid behind everything, and three security lasers. */
+body {
+  background-image:
+    linear-gradient(rgba(159, 173, 201, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(159, 173, 201, .035) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+.lasers { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.lasers i {
+  position: absolute; left: -20%; width: 140%; height: 2px;
+  background: #e2475b; box-shadow: 0 0 10px 1px #e2475b; opacity: .13;
+  transition: opacity .3s;
+}
+.lasers i:nth-child(1) { top: 22%; transform: rotate(-9deg); animation: sway 9s ease-in-out infinite alternate; }
+.lasers i:nth-child(2) { top: 58%; transform: rotate(6deg); animation: sway 13s ease-in-out infinite alternate-reverse; }
+.lasers i:nth-child(3) { top: 84%; transform: rotate(-4deg); animation: sway 11s ease-in-out infinite alternate; }
+body.alarm .lasers i { opacity: .6; animation-duration: 1.6s; }
+body.done .lasers i { opacity: .05; }
+.cab { position: relative; z-index: 1; }
 
 #fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 
@@ -70,9 +90,10 @@ body.siren .cab { animation: siren .22s steps(2) 4; }
 .top { display: flex; align-items: center; gap: 12px; min-height: 44px; }
 .logo { margin: 0; font: 15px var(--px); color: var(--gold); text-shadow: 2px 2px 0 var(--red); }
 .haul { display: flex; gap: 5px; margin-left: auto; }
-.haul i { width: 11px; height: 11px; background: var(--edge); transition: background-color .3s, transform .3s; }
-.haul i.now { background: transparent; box-shadow: inset 0 0 0 2px var(--gold); }
-.haul i.bust { background: repeating-linear-gradient(135deg, #e2475b 0 3px, #170b12 3px 6px); }
+.haul i { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; }
+.haul i svg { width: 100%; height: 100%; image-rendering: pixelated; }
+.haul i.todo::after { content: ""; width: 6px; height: 6px; background: var(--edge-2); }
+.haul i.now::after { content: ""; width: 8px; height: 8px; background: transparent; box-shadow: inset 0 0 0 2px var(--gold); }
 .haul i.pop { animation: pip .45s cubic-bezier(.2, 1.8, .4, 1); }
 .take { font-weight: 900; font-size: 19px; color: var(--green); font-variant-numeric: tabular-nums; min-width: 62px; text-align: right; }
 .icon {
@@ -153,15 +174,24 @@ body.alarm #spinBtn { background: #e2475b; box-shadow: 4px 4px 0 var(--gold); }
 
 /* ---------- Dial ---------- */
 .dial {
-  position: relative; width: min(100%, 330px, 44vh); width: min(100%, 330px, 44dvh);
-  aspect-ratio: 1; margin: 0 auto;
+  position: relative; width: min(calc(100% - 68px), 310px, 42vh); width: min(calc(100% - 68px), 310px, 42dvh);
+  aspect-ratio: 1; margin: 24px auto;
   display: flex; align-items: center; justify-content: center;
   container-type: inline-size;
 }
-.dial svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.dial > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.dial .door { fill: #0e1728; stroke: var(--edge); stroke-width: 3; transition: fill .35s, stroke .35s; }
+body.alarm .dial .door { fill: #1c0d15; }
+.dial .hinge { fill: var(--edge-2); stroke: var(--bg); stroke-width: 3; }
+.dial .rivets circle { fill: var(--edge-2); }
+/* Locking bolts sit proud of the door and pull in when a safe is cracked. */
+.bolts rect { fill: #8d9bb8; stroke: var(--bg); stroke-width: 2; transition: opacity .25s, fill .25s; }
+.dial.open .bolts rect { opacity: .18; }
+.dial.jam .bolts rect { fill: #e2475b; }
 .dial .plate { fill: var(--panel); stroke: var(--edge); stroke-width: 3; transition: fill .35s, stroke .35s; }
 .dial .hub { fill: var(--bg); transition: fill .35s; }
 .dial .ticks { fill: none; stroke: var(--edge-2); stroke-width: 5; stroke-dasharray: 2 9.730; }
+.dial .ticks.major { stroke: var(--dim); stroke-width: 10; stroke-dasharray: 3 54.600; opacity: .7; }
 .dial .timering { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; opacity: 0; transition: opacity .3s, stroke .3s; }
 .dial.timing .timering { opacity: .9; }
 .dial.low .timering { stroke: var(--pink); }
@@ -174,11 +204,14 @@ body.alarm #spinBtn { background: #e2475b; box-shadow: 4px 4px 0 var(--gold); }
 #arc { filter: drop-shadow(0 0 7px var(--glow)); }
 .wave { fill: none; stroke: var(--glow); stroke-width: 6; opacity: 0; transform-origin: 170px 170px; }
 .dial.boom .wave { animation: wave .7s ease-out; }
-.dial.wobble svg { animation: wobble .35s ease-in-out; }
+.dial.wobble > svg { animation: wobble .35s ease-in-out; }
 .dial.landed .centre { animation: land .35s cubic-bezier(.2, 1.6, .4, 1); }
 body.at-intro #ticks { animation: turn 50s linear infinite; }
 
 .centre { position: relative; width: 56%; display: flex; flex-direction: column; align-items: center; gap: 2.200cqw; text-align: center; }
+.cicon { height: 13cqw; display: none; }
+.cicon svg { display: block; height: 100%; aspect-ratio: 1; margin: 0 auto; image-rendering: pixelated; filter: drop-shadow(0 0 2.500cqw var(--glow)); }
+.dial.open .cicon { display: block; animation: land .4s cubic-bezier(.2, 1.6, .4, 1); }
 /* Text inside the dial scales with the dial (cqw = % of the dial's width). */
 .ctop { font: 9px/1.5 var(--px); font-size: max(8px, 2.800cqw); color: var(--gold); min-height: 1em; }
 .cmain { font-size: 44px; font-size: 14cqw; font-weight: 900; letter-spacing: -1px; line-height: 1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -190,13 +223,18 @@ body.at-intro #ticks { animation: turn 50s linear infinite; }
 
 /* ---------- Summary ---------- */
 #summary { display: flex; flex-direction: column; gap: 12px; }
-#sumRank { font-size: 11px; }
+/* The rank is stamped on like a case file. */
+.stamp {
+  align-self: flex-start; justify-self: start; padding: 8px 12px; margin: 2px 0 4px;
+  font: 12px var(--px); color: #e2475b; border: 3px solid #e2475b; transform: rotate(-4deg);
+  animation: stamp .35s cubic-bezier(.2, 1.6, .4, 1) .25s backwards;
+}
 .total { font-size: 64px; font-weight: 900; letter-spacing: -2px; line-height: 1; }
 details { border-top: 1px solid var(--edge); }
 summary { cursor: pointer; list-style: none; padding: 12px 0; display: flex; gap: 12px; align-items: center; font-size: 15px; }
 summary::-webkit-details-marker { display: none; }
-summary i { flex: none; width: 12px; height: 12px; }
-summary i.bust { background: repeating-linear-gradient(135deg, #e2475b 0 3px, #170b12 3px 6px); }
+summary i { flex: none; width: 20px; height: 20px; }
+summary i svg { width: 100%; height: 100%; image-rendering: pixelated; }
 summary .q { flex: 1; min-width: 0; }
 .answers { padding: 0 0 12px 24px; font-size: 15px; }
 .answers div { display: flex; gap: 10px; padding: 3px 0; }
@@ -218,7 +256,8 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; animation: rise
 .rules b { color: var(--ink); }
 .ladder { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; font-size: 13px; color: var(--dim); }
 .ladder span { display: flex; align-items: center; gap: 8px; }
-.ladder i { flex: none; width: 10px; height: 10px; }
+.ladder i { flex: none; width: 18px; height: 18px; }
+.ladder i svg { width: 100%; height: 100%; image-rendering: pixelated; }
 .ladder b { color: var(--ink); margin-left: auto; font-variant-numeric: tabular-nums; }
 
 @keyframes shake {
@@ -230,6 +269,8 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; animation: rise
 @keyframes land { 0% { transform: scale(.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
 @keyframes pip { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+@keyframes sway { to { translate: 0 26px; rotate: 2.500deg; } }
+@keyframes stamp { from { transform: rotate(-4deg) scale(2.4); opacity: 0; } }
 @keyframes turn { to { transform: rotate(360deg); } }
 @keyframes siren { 50% { background-color: #5a1522; } }
 
@@ -237,7 +278,8 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; animation: rise
 @media (min-width: 900px) {
   .cab { max-width: 1500px; padding: 22px clamp(28px, 4vw, 72px) 28px; }
   .logo { font-size: 20px; }
-  .haul i { width: 14px; height: 14px; }
+  .haul i { width: 22px; height: 22px; }
+  .haul { gap: 7px; }
   .take { font-size: 24px; }
   /* Intro and summary stay one quiet centred column. */
   body.at-intro .dial { width: min(100%, 520px, 54vh); }
@@ -257,7 +299,7 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; animation: rise
   body.done #summary > * { grid-column: 1; }
   body.done #safeList { grid-column: 2; grid-row: 1 / span 6; align-self: center; }
   body.done .total { font-size: clamp(72px, 10vw, 170px); letter-spacing: -4px; }
-  body.done #sumRank { font-size: 14px; }
+  body.done .stamp { font-size: 16px; padding: 10px 16px; }
   body.done #sumLine, body.done #sumStats { font-size: 17px; }
   body.done summary { font-size: 17px; padding: 14px 0; }
   body.done .answers { font-size: 16px; }
@@ -292,6 +334,15 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; animation: rise
   .dial { width: min(100%, 250px, 40vh); }
   .cab { gap: 12px; }
   .prompt { font-size: 21px; }
+}
+/* Phones: keep the whole top bar on screen. */
+@media (max-width: 520px) {
+  .top { gap: 8px; }
+  .logo { font-size: 13px; }
+  .haul { gap: 3px; }
+  .haul i { width: 13px; height: 13px; }
+  .take { font-size: 17px; min-width: 54px; }
+  .icon { width: 30px; }
 }
 @media (max-width: 360px) {
   .prompt { font-size: 20px; }

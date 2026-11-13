@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="at-intro">
+  <div class="lasers" aria-hidden="true"><i></i><i></i><i></i></div>
   <canvas id="fx" aria-hidden="true"></canvas>
   <div class="tape" aria-hidden="true"></div>
   <main class="cab">
@@ -36,11 +37,11 @@
 
     <!-- Intro: deliberately quiet -->
     <section id="intro">
-      <p class="tagline">Seven safes. Rarer answers, bigger loot.</p>
-      <button id="startDaily" class="btn gold big" type="button">START</button>
+      <p class="tagline">Seven safes. One night. The rarer your answer, the bigger the loot.</p>
+      <button id="startDaily" class="btn gold big" type="button">BREAK IN</button>
       <div class="links">
-        <button id="startFree" class="link" type="button">Practice</button>
-        <button id="howLink" class="link" type="button">How to play</button>
+        <button id="startFree" class="link" type="button">Practice run</button>
+        <button id="howLink" class="link" type="button">The plan</button>
       </div>
       <p class="small" id="statsLine"></p>
     </section>
@@ -53,7 +54,7 @@
       <form id="answerForm" autocomplete="off">
         <label class="sr" for="answer">Your answer</label>
         <input id="answer" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="60" placeholder="Your answer" enterkeyhint="go">
-        <button class="btn gold" type="submit" id="spinBtn">SPIN</button>
+        <button class="btn gold" type="submit" id="spinBtn">CRACK</button>
       </form>
       <div class="actions" id="actions" hidden>
         <button id="next" class="btn gold wide" type="button">GRAB IT</button>
@@ -68,6 +69,17 @@
     <!-- The dial -->
     <div class="dial" id="dial">
       <svg viewBox="0 0 340 340" role="img" aria-label="Safe dial">
+        <!-- the safe door: frame, hinges, rivets and eight locking bolts -->
+        <rect x="-16" y="-16" width="372" height="372" rx="30" class="door"/>
+        <rect x="-30" y="62" width="20" height="50" rx="4" class="hinge"/>
+        <rect x="-30" y="228" width="20" height="50" rx="4" class="hinge"/>
+        <g class="rivets"><circle cx="8" cy="8" r="5"/><circle cx="332" cy="8" r="5"/><circle cx="8" cy="332" r="5"/><circle cx="332" cy="332" r="5"/></g>
+        <g id="bolts" class="bolts">
+          <rect x="163" y="-8" width="14" height="22"/><rect x="163" y="326" width="14" height="22"/>
+          <rect x="-8" y="163" width="22" height="14"/><rect x="326" y="163" width="22" height="14"/>
+          <rect x="163" y="-8" width="14" height="22" transform="rotate(45 170 170)"/><rect x="163" y="-8" width="14" height="22" transform="rotate(135 170 170)"/>
+          <rect x="163" y="-8" width="14" height="22" transform="rotate(225 170 170)"/><rect x="163" y="-8" width="14" height="22" transform="rotate(315 170 170)"/>
+        </g>
         <circle class="wave" id="wave" cx="170" cy="170" r="150"/>
         <circle cx="170" cy="170" r="162" class="plate"/>
         <g id="segs" fill="none" stroke-width="20" transform="rotate(-90 170 170)">
@@ -86,11 +98,12 @@
         <circle id="arc" cx="170" cy="170" r="138" fill="none" stroke="#ffd166" stroke-width="20" stroke-linecap="round" stroke-dasharray="0 868" transform="rotate(-90 170 170)"/>
         <g id="knob"><circle cx="170" cy="32" r="15" class="knob"/></g>
         <circle cx="170" cy="170" r="112" class="hub"/>
-        <g id="ticks"><circle cx="170" cy="170" r="112" class="ticks"/></g>
+        <g id="ticks"><circle cx="170" cy="170" r="112" class="ticks"/><circle cx="170" cy="170" r="110" class="ticks major"/></g>
         <circle id="timeRing" cx="170" cy="170" r="100" class="timering" transform="rotate(-90 170 170)"/>
         <path d="M159 4h22l-11 18z" class="pointer"/>
       </svg>
       <div class="centre" aria-live="polite">
+        <div class="cicon" id="cIcon" aria-hidden="true"></div>
         <div class="ctop" id="cTop"></div>
         <div class="cmain" id="cMain">7 SAFES</div>
         <div class="csub" id="cSub"></div>
@@ -99,12 +112,13 @@
 
     <!-- Summary -->
     <section id="summary" hidden>
-      <div class="ctop gold" id="sumRank" tabindex="-1"></div>
+      <div class="cat">THE TAKE</div>
       <div class="total" id="sumTotal"></div>
+      <div class="stamp" id="sumRank" tabindex="-1"></div>
       <p class="small" id="sumLine"></p>
       <div class="row">
         <button id="share" class="btn gold" type="button">COPY RESULT</button>
-        <button id="freeAgain" class="btn" type="button">PRACTICE</button>
+        <button id="freeAgain" class="btn" type="button">PRACTICE RUN</button>
       </div>
       <p class="small" id="sumStats" aria-live="polite"></p>
       <div id="safeList"></div>
@@ -112,7 +126,7 @@
   </main>
 
   <dialog id="how" aria-labelledby="howTitle">
-    <h2 id="howTitle" class="cat">HOW TO PLAY</h2>
+    <h2 id="howTitle" class="cat">THE PLAN</h2>
     <ul class="rules">
       <li>Every safe has lots of right answers. Give one.</li>
       <li>The fewer people who say yours, the further the dial turns.</li>
@@ -122,7 +136,7 @@
     </ul>
     <div class="ladder" id="ladder"></div>
     <p class="small">Rarity starts as an estimate and shifts with every real answer.</p>
-    <button id="howClose" class="btn gold" type="button">GOT IT</button>
+    <button id="howClose" class="btn gold" type="button">I'M IN</button>
   </dialog>
 
   <script src="js/game.js"></script>
