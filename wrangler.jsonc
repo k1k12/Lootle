@@ -14,9 +14,16 @@
   "assets": { "directory": "./public" },
   // One small SQLite-backed store per safe. Created automatically on first deploy.
   "durable_objects": {
-    "bindings": [{ "name": "SEAM", "class_name": "SeamStore" }]
+    "bindings": [
+      { "name": "SEAM", "class_name": "SeamStore" },
+      // One store per player: their stash, items and which safes have paid out.
+      { "name": "PLAYER", "class_name": "PlayerStore" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SeamStore"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SeamStore"] },
+    { "tag": "v2", "new_sqlite_classes": ["PlayerStore"] }
+  ],
   // Rate limits (counted per Cloudflare location, so treat them as approximate).
   "ratelimits": [
     { "name": "LIMIT_IP", "namespace_id": "4101", "simple": { "limit": 300, "period": 60 } },

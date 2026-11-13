@@ -26,6 +26,12 @@ several right answers, and the answer fewer people give is worth more. Say
 - After a correct answer you can grab the loot or spin again. A rarer second
   answer swaps your loot up. A more common one, a repeat or a miss trips the
   alarm and the safe pays nothing.
+- Loot from the daily job goes into your stash. Spend it at the fence on
+  things to throw at the safe (tomatoes, eggs, a rubber duck, a hammer), an
+  hourglass for three extra seconds, or dynamite, which shows three answers
+  where one is the rarest and two are wrong. Thrown items have a small
+  chance of hitting the lock and revealing an answer. A safe opened with
+  help is marked in your shared result.
 - The daily job can be played once. Practice runs deal seven random safes
   and do not count towards your streak or the rarity numbers.
 
@@ -56,6 +62,7 @@ browser rather than loaded from files.
 | `src/worker.js` | The Worker: `/api/*` routes and the per-safe store |
 | `src/core.js` | Spelling correction, rarity maths and the daily schedule |
 | `src/seams/` | The question bank, split into packs. Never sent to the browser. |
+| `src/shop.js` | Shop items, prices and odds |
 | `src/lexicon.js` | Names that must not be auto-corrected into an answer |
 | `tests/run.js` | Checks on the bank, matching, rarity and schedule |
 | `wrangler.jsonc` | Cloudflare configuration |
@@ -88,7 +95,9 @@ than measured.
 ### Storage
 
 Each safe has its own small SQLite database (a Durable Object) holding the
-answer counts and which anonymous player ids have played it. Streaks and
+answer counts and which anonymous player ids have played it. A second store per player
+id holds the stash and bought items, so they cannot be edited in the
+browser. Streaks and
 progress are kept in the player's browser. There are no accounts and no
 personal data is collected.
 
