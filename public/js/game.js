@@ -28,9 +28,34 @@
     "fx", "help", "how", "howClose", "howLink", "mute", "muteWave", "muteX", "take", "tries", "haul", "intro", "ladder",
     "startDaily", "startFree", "statsLine", "play", "safeCat", "prompt", "risk", "answerForm", "answer",
     "spinBtn", "actions", "next", "again", "feedback", "dial", "segs", "zones", "zoneGreen", "zoneRed",
-    "arc", "knob", "ticks", "timeRing", "cTop", "cMain", "cSub", "summary", "sumRank", "sumTotal", "sumLine",
+    "arc", "knob", "ticks", "timeRing", "cIcon", "cTop", "cMain", "cSub", "summary", "sumRank", "sumTotal", "sumLine",
     "share", "freeAgain", "sumStats", "safeList",
   ]) el[id] = $(id);
+
+  // Pixel icons for each kind of loot. '#' = loot colour, '+' = highlight, '-' = shadow.
+  const ICONS = [
+    ["#......#", ".#....#.", "..#..#..", "...##...", "...##...", "..#..#..", ".#....#.", "#......#"], // nothing
+    ["..####..", ".#+####.", "#+#--###", "##-#####", "##-#####", "###--##-", ".#####-.", "..----.."], // coin
+    ["........", "########", "#--##--#", "#-#++#-#", "#-#++#-#", "#--##--#", "########", ".------."], // cash
+    ["........", "..#####.", ".#++###.", ".######.", "#######-", "#######-", "#######-", ".------."], // gold bar
+    ["########", "#------#", "#-+----#", "#---#--#", "#--###-#", "#-#####-", "########", "........"], // painting
+    ["........", "#..##..#", "#.####.#", "########", "#+#++#+#", "########", ".------.", "........"], // crown
+    ["..####..", ".#++###.", "##+####-", ".######.", "..####..", "...##...", "........", "........"], // diamond
+  ];
+  function icon(tier) {
+    const color = TIERS[tier].color;
+    const fill = { "#": color, "+": "#ffffff", "-": tier === 0 ? color : "rgba(11,18,32,.45)" };
+    let rects = "";
+    ICONS[tier].forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        const ch = row[x];
+        if (ch === ".") continue;
+        if (ch === "-" && tier !== 0) rects += `<rect x="${x}" y="${y}" width="1" height="1" fill="${color}"/>`;
+        rects += `<rect x="${x}" y="${y}" width="1" height="1" fill="${fill[ch]}"/>`;
+      }
+    });
+    return `<svg viewBox="0 0 8 8" shape-rendering="crispEdges" aria-hidden="true">${rects}</svg>`;
+  }
 
   const money = (k) => "$" + k + "K";
   const esc = (s) =>
@@ -234,6 +259,8 @@
       }
     });
     lightSegments(tier);
+    el.cIcon.innerHTML = icon(tier);
+    el.dial.classList.add("open");
     Sfx.clunk();
     Sfx.payout(tier);
     pulse(el.dial, "boom");
@@ -312,9 +339,9 @@
     let html = "";
     for (let i = 0; i < SAFES; i++) {
       const r = results[i];
-      const fresh = animate && game && i === game.index ? " pop" : "";
-      if (r) html += r.tier ? `<i class="${fresh.trim()}" style="background:${TIERS[r.tier].color}"></i>` : `<i class="bust${fresh}"></i>`;
-      else html += `<i class="${game && i === game.index ? "now" : ""}"></i>`;
+      const fresh = animate && game && i === game.index ? "pop" : "";
+      if (r) html += `<i class="${fresh}">${icon(r.tier)}</i>`;
+      else html += `<i class="${game && i === game.index ? "now" : "todo"}"></i>`;
     }
     el.haul.innerHTML = html;
     const done = results.filter((r) => r.tier).length;
@@ -378,6 +405,7 @@
     const safe = game.safes[game.index];
     const held = risk ? game.results[game.index] : null;
     game.risk = risk;
+    el.dial.classList.remove("open", "jam");
     game.tries = risk ? 1 : TRIES;
     game.busy = false;
     game.needsBank = false;
@@ -385,7 +413,7 @@
     el.prompt.textContent = safe.prompt;
     el.answer.value = "";
     el.answer.placeholder = risk ? "Something rarer" : "Your answer";
-    el.spinBtn.textContent = risk ? "RISK IT" : "SPIN";
+    el.spinBtn.textContent = risk ? "RISK IT" : "CRACK";
     el.spinBtn.disabled = false;
     say("");
     if (risk) {
@@ -400,18 +428,24 @@
       turn(0, 450, "#ffd166");
     }
     el.risk.hidden = !risk;
+    // A reload mid-safe picks up with the same tries and time left, so
+    // refreshing the page is not a way to get a fresh attempt.
+    const live = !risk && game.daily && saved.progress && saved.progress.number === game.number ? saved.progress.live : null;
+    const resumed = live && live.index === game.index ? live : null;
+    if (resumed) game.tries = Math.max(1, Math.min(TRIES, resumed.tries));
+    if (game.daily && !risk) persist();
     drawTries();
     syncHud();
     mode(true);
     show("play");
     el.answer.focus();
-    startClock(risk ? SECONDS_RISK : SECONDS);
+    startClock(risk ? SECONDS_RISK : SECONDS, resumed ? Math.max(3000, resumed.left) : 0);
   }
 
   // ---------- Clock (pauses while a guess is being checked) ----------
-  function startClock(seconds) {
+  function startClock(seconds, leftMs) {
     clock.total = seconds * 1000;
-    clock.left = clock.total;
+    clock.left = leftMs ? Math.min(leftMs, clock.total) : clock.total;
     clock.lastSecond = -1;
     resumeClock();
   }
@@ -427,6 +461,7 @@
       const secs = Math.ceil(clock.left / 1000);
       if (secs !== clock.lastSecond) {
         clock.lastSecond = secs;
+        saveLive();
         const low = secs <= 5;
         centre(game.risk ? "ALARM IN" : "", String(secs), "", game.risk ? "#ff8fa0" : "");
         el.cMain.classList.toggle("low", low);
@@ -440,6 +475,11 @@
       clock.raf = requestAnimationFrame(tick);
     };
     clock.raf = requestAnimationFrame(tick);
+  }
+  function saveLive() {
+    if (!game.daily || game.risk || !saved.progress) return;
+    saved.progress.live = { index: game.index, left: clock.left, tries: game.tries };
+    save();
   }
   function pauseClock() {
     clock.running = false;
@@ -490,6 +530,7 @@
 
     if (hit.ok) return win(hit, false);
     game.tries--;
+    saveLive();
     drawTries();
     Sfx.miss();
     pulse(el.dial, "wobble");
@@ -525,7 +566,7 @@
     el.risk.hidden = true;
     say("");
     setAlarm(false);
-    centre("", "", "", "");
+    centre("LISTENING", "", "", "");
     el.cMain.classList.remove("low");
     await spinTo(hit.tier);
 
@@ -540,7 +581,7 @@
     if (canRisk) bits.push(`${hit.deeper} rarer left`);
     say(bits.join(" \u00b7 "));
     el.again.hidden = !canRisk;
-    el.next.textContent = canRisk ? "GRAB IT" : game.index === SAFES - 1 ? "GETAWAY" : "NEXT";
+    el.next.textContent = canRisk ? "GRAB IT" : game.index === SAFES - 1 ? "GETAWAY" : "NEXT SAFE";
     game.needsBank = !swapped;
     game.busy = false;
     el.actions.hidden = false;
@@ -595,12 +636,14 @@
       Sfx.lockout();
     }
     pulse(el.dial, "wobble");
+    el.dial.classList.remove("open");
+    el.dial.classList.add("jam");
     centre(title, "$0", "", "#ff8fa0");
     el.cMain.classList.remove("low");
     el.risk.hidden = true;
     say(why, true);
     el.again.hidden = true;
-    el.next.textContent = game.index === SAFES - 1 ? "GETAWAY" : "NEXT";
+    el.next.textContent = game.index === SAFES - 1 ? "GETAWAY" : "NEXT SAFE";
     game.needsBank = false;
     game.busy = false;
     mode(false);
@@ -660,7 +703,7 @@
     el.share.textContent = "COPY RESULT";
     el.safeList.innerHTML = game.safes.map((safe, i) => {
       const r = game.results[i];
-      const chip = r.tier ? `<i style="background:${TIERS[r.tier].color}"></i>` : '<i class="bust"></i>';
+      const chip = `<i>${icon(r.tier)}</i>`;
       return `<details data-safe="${esc(safe.id)}" data-mine="${esc(r.name || "")}"><summary>${chip}<span class="q">${esc(safe.prompt)}</span></summary><div class="answers">Loading...</div></details>`;
     }).join("");
     show("summary");
@@ -714,15 +757,15 @@
 
   function boot() {
     el.ladder.innerHTML = TIERS.slice(1)
-      .map((t) => `<span><i style="background:${t.color}"></i>${t.name}<b>${money(t.k)}</b></span>`).join("");
-    centre("JOB #" + String(today).padStart(3, "0"), "7 SAFES", "", "");
+      .map((t, i) => `<span><i>${icon(i + 1)}</i>${t.name}<b>${money(t.k)}</b></span>`).join("");
+    centre("JOB #" + String(today).padStart(3, "0"), "7 SAFES", "TONIGHT", "");
     setMuteLabel();
     syncHud();
     requestAnimationFrame(idle);
 
     const progress = saved.progress && saved.progress.number === today ? saved.progress : null;
-    if (progress && progress.results.length >= SAFES) el.startDaily.textContent = "RESULT";
-    else if (progress && progress.results.length) el.startDaily.textContent = "CONTINUE";
+    if (progress && progress.results.length >= SAFES) el.startDaily.textContent = "THE TAKE";
+    else if (progress && (progress.results.length || progress.live)) el.startDaily.textContent = "BACK IN";
     if (saved.played) {
       const live = saved.lastFinished >= today - 1 ? saved.streak : 0;
       el.statsLine.textContent = `Streak ${live} \u00b7 Best ${money(saved.best || 0)}`;
