@@ -454,7 +454,7 @@
     if (!risk) game.assisted = false;
     el.options.hidden = true;
     el.options.innerHTML = "";
-    el.safeCat.textContent = `${game.daily ? "SAFE" : game.past ? `JOB #${game.number} \u00b7 SAFE` : "PRACTICE"} ${game.index + 1} · ${risk ? "SECOND SPIN" : safe.size ? `THE VAULT \u00b7 ${safe.size} ANSWERS` : safe.cat.toUpperCase()}`;
+    el.safeCat.textContent = `${game.daily ? "SAFE" : game.past ? `JOB #${game.number} \u00b7 SAFE` : "PRACTICE"} ${game.index + 1} · ${risk ? "SECOND SPIN" : safe.hard ? "THE VAULT \u00b7 HARD" : safe.size ? `${safe.cat.toUpperCase()} \u00b7 ${safe.size} ANSWERS` : safe.cat.toUpperCase()}`;
     el.prompt.textContent = safe.prompt;
     el.answer.value = "";
     el.answer.placeholder = risk ? "Something rarer" : "Your answer";

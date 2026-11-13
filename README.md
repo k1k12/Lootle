@@ -35,9 +35,9 @@ several right answers, and the answer fewer people give is worth more. Say
 - Past jobs are in the archive. Each can be played once for fun. Archive
   jobs pay nothing into the stash and do not count towards streaks or the
   rarity numbers.
-- The last safe of each job is the vault: a big list, such as every country
-  in Africa or all 118 chemical elements. Every valid answer is accepted, so
-  there is plenty of room to find a rare one.
+- A job is four short general knowledge safes, then two big lists (every
+  country in Africa, all 118 chemical elements), then the vault: one hard,
+  specialist list that is easier with something from the shop.
 - The daily job can be played once. Practice runs deal seven random safes
   and do not count towards your streak or the rarity numbers.
 
@@ -126,9 +126,16 @@ To report a security problem, see [SECURITY.md](SECURITY.md).
 3. Run `npm test`. It checks that every safe has at least three answers, a
    tier 1 and a tier 6, and that no spelling points at two different answers.
 
-Big lists go in a vault pack instead (`src/seams/vault-01.js` is the first)
-and are added to the end of `VAULTS` in the same file. They use the same
-format. One vault safe is dealt as the last safe of each job.
+There are three kinds of pack, all in the same format:
+
+| File | Kind | Listed in |
+| --- | --- | --- |
+| `pack-NN.js` | Short general knowledge lists | `PACKS` |
+| `vault-NN.js` | Big lists, roughly 30 to 200 answers | `VAULTS` |
+| `hard-NN.js` | Hard, specialist lists | `HARD` |
+
+To stop a safe being dealt without breaking old jobs in the archive, add its
+id to `RETIRED` in `src/seams/index.js` rather than deleting it.
 
 Always add packs at the end. The schedule deals each pack in order, so
 appending a pack never changes which safes earlier days had.

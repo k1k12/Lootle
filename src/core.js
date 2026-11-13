@@ -252,6 +252,74 @@ export function safesForJob(packs, vaults, number) {
   return [...day.slice(0, SEAMS_PER_DIG - 1), order[index % total]];
 }
 
+/**
+ * The first job dealt the current way: four short general knowledge safes,
+ * two big lists, then one hard safe. Earlier jobs stay as they were so the
+ * archive never changes.
+ */
+export const MIX_FROM = 6;
+export const MIX = { short: 4, big: 2, hard: 1 };
+/** How many packs of each kind existed when the mix began. Never change these. */
+const MIX_PACKS = { short: 4, big: 2, hard: 1 };
+
+const poolCache = new WeakMap();
+const lateCache = new WeakMap();
+
+/**
+ * Item number `g` of an endless line-up built from packs. The first time
+ * through, each pack is shuffled on its own and they run in pack order, so
+ * a pack added to the end never moves anything that came before it. After
+ * that, every round reshuffles the whole pool.
+ */
+function fromPool(packs, seed, g, late, launched) {
+  let rounds = poolCache.get(packs);
+  if (!rounds) {
+    const orders = packs.map((pack, i) => shuffled(pack, mulberry32(seed + i)));
+    // Among the packs that existed when the mix began, safes used in the
+    // days just before it wait at the back. Packs added later follow on
+    // after that, so nothing already dealt ever moves.
+    const old = orders.slice(0, launched).flat();
+    const first = [...old.filter((s) => !late.has(s.id)), ...old.filter((s) => late.has(s.id)), ...orders.slice(launched).flat()];
+    rounds = [first];
+    poolCache.set(packs, rounds);
+  }
+  const total = rounds[0].length;
+  const round = Math.floor(g / total);
+  while (rounds.length <= round) {
+    // A new round: reshuffle, but keep whatever closed the last round away from the start.
+    const tail = new Set(rounds[rounds.length - 1].slice(-Math.min(12, Math.floor(total / 3))).map((s) => s.id));
+    const order = shuffled(packs.flat(), mulberry32(seed + 0x1000 + rounds.length));
+    rounds.push([...order.filter((s) => !tail.has(s.id)), ...order.filter((s) => tail.has(s.id))]);
+  }
+  return rounds[round][g % total];
+}
+
+/** The seven safes of a job. `pools` is { packs, vaults, short, hard }. */
+export function jobSafes(pools, number) {
+  if (number < MIX_FROM || !pools.hard || !pools.hard.flat().length) {
+    return safesForJob(pools.packs, pools.vaults, number);
+  }
+  let late = lateCache.get(pools);
+  if (!late) {
+    late = new Set();
+    for (let n = 1; n < MIX_FROM; n++) safesForJob(pools.packs, pools.vaults, n).forEach((s) => late.add(s.id));
+    lateCache.set(pools, late);
+  }
+  const day = number - MIX_FROM;
+  const out = [];
+  const take = (packs, seed, perDay, launched) => {
+    for (let k = 0, skip = 0; k < perDay && skip < 50; ) {
+      const safe = fromPool(packs, seed, day * perDay + k + skip, late, launched);
+      if (out.some((s) => s.id === safe.id)) skip++;
+      else { out.push(safe); k++; }
+    }
+  };
+  take(pools.short, 0x5c0de0, MIX.short, MIX_PACKS.short);
+  take(pools.vaults, 0xb16b00, MIX.big, MIX_PACKS.big);
+  take(pools.hard, 0x4a2d00, MIX.hard, MIX_PACKS.hard);
+  return out;
+}
+
 export function randomSeams(bank) {
   return shuffled(bank, Math.random).slice(0, SEAMS_PER_DIG);
 }
