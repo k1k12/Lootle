@@ -10,6 +10,7 @@ import { PACK as pack03 } from "./pack-03.js";
 import { PACK as pack04 } from "./pack-04.js";
 import { PACK as vault01 } from "./vault-01.js";
 import { PACK as vault02 } from "./vault-02.js";
+import { PACK as vault03 } from "./vault-03.js";
 import { PACK as hard01 } from "./hard-01.js";
 
 export const PACKS = [pack01, pack02, pack03, pack04];
@@ -18,7 +19,7 @@ export const PACKS = [pack01, pack02, pack03, pack04];
  * Vault packs are the big lists (every country in Africa, every element).
  * New ones also go on the END of this list.
  */
-export const VAULTS = [vault01, vault02];
+export const VAULTS = [vault01, vault02, vault03];
 
 /* Hard packs are specialist lists. One closes each job. */
 export const HARD = [hard01];
