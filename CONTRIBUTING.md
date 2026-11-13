@@ -4,7 +4,7 @@
 
 | Branch | Purpose |
 | --- | --- |
-| `main` | The live site. Every merge here deploys to lootle.app. Releases only. |
+| `main` | The live site. Releases only. |
 | `dev` | The default branch. All work lands here first. |
 | `type/short-name` | One branch per piece of work, created from `dev`. |
 
@@ -32,8 +32,10 @@ Names are lowercase with hyphens, for example `feat/question-pack-3`.
 ## Releases
 
 1. Open a PR from `dev` into `main` titled `release: vX.Y.Z`.
-2. Merge it with a merge commit. Cloudflare deploys `main` automatically.
-3. Tag it: `git tag -a vX.Y.Z -m "..."` on `main`, then push the tag.
+2. Merge it with a merge commit.
+3. Deploy from an up to date `main`: `git checkout main && git pull && npm run deploy`.
+4. Tag it: `git tag -a vX.Y.Z -m "..."` on `main`, then push the tag, and
+   publish a GitHub release from the tag with a short list of what changed.
 
 New question packs change the daily line-up, so release them just after
 midnight UTC.

@@ -1,7 +1,12 @@
 {
   "name": "lootle",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "description": "A daily trivia heist where rarer answers win bigger loot",
+  "homepage": "https://lootle.app",
+  "repository": "github:k1k12/Lootle",
   "private": true,
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22" },
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
