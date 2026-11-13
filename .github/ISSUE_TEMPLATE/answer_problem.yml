@@ -1,0 +1,24 @@
+name: Wrong or missing answer
+description: A right answer was rejected, or a safe's answer list has a mistake
+labels: [questions]
+body:
+  - type: input
+    id: prompt
+    attributes:
+      label: The question
+      placeholder: Name a country that borders Germany.
+    validations:
+      required: true
+  - type: input
+    id: answer
+    attributes:
+      label: The answer in question
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What is wrong
+      description: A link to a source helps a lot.
+    validations:
+      required: true
