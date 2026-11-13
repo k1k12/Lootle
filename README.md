@@ -32,6 +32,9 @@ several right answers, and the answer fewer people give is worth more. Say
   where one is the rarest and two are wrong. Thrown items have a small
   chance of hitting the lock and revealing an answer. A safe opened with
   help is marked in your shared result.
+- Past jobs are in the archive. Each can be played once for fun. Archive
+  jobs pay nothing into the stash and do not count towards streaks or the
+  rarity numbers.
 - The last safe of each job is the vault: a big list, such as every country
   in Africa or all 118 chemical elements. Every valid answer is accepted, so
   there is plenty of room to find a rare one.
