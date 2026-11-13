@@ -29,6 +29,7 @@
       <h1 class="logo">LOOTLE</h1>
       <div class="haul" id="haul" role="img" aria-label="Loot so far"></div>
       <b class="take" id="take" aria-label="Take so far">$0K</b>
+      <button id="shopBtn" class="icon" type="button" aria-label="Shop and stash">$</button>
       <button id="help" class="icon" type="button" aria-label="How to play">?</button>
       <button id="mute" class="icon" type="button" aria-pressed="false" aria-label="Sound on">
         <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="muteWave" d="M17 9c1.500 1.500 1.500 4.500 0 6"/><path id="muteX" d="M17 9l5 6M22 9l-5 6" hidden/></svg>
@@ -42,7 +43,9 @@
       <div class="links">
         <button id="startFree" class="link" type="button">Practice run</button>
         <button id="howLink" class="link" type="button">The plan</button>
+        <button id="shopLink" class="link" type="button">Shop</button>
       </div>
+      <p class="small" id="stashLine"></p>
       <p class="small" id="statsLine"></p>
     </section>
 
@@ -56,6 +59,8 @@
         <input id="answer" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="60" placeholder="Your answer" enterkeyhint="go">
         <button class="btn gold" type="submit" id="spinBtn">CRACK</button>
       </form>
+      <div class="options" id="options" hidden></div>
+      <div class="tray" id="tray" hidden></div>
       <div class="actions" id="actions" hidden>
         <button id="next" class="btn gold wide" type="button">GRAB IT</button>
         <button id="again" class="btn red wide" type="button">RISK IT</button>
@@ -118,6 +123,7 @@
       <p class="small" id="sumLine"></p>
       <div class="row">
         <button id="share" class="btn gold" type="button">COPY RESULT</button>
+        <button id="sumShop" class="btn" type="button">SPEND IT</button>
         <button id="freeAgain" class="btn" type="button">PRACTICE RUN</button>
       </div>
       <p class="small" id="sumStats" aria-live="polite"></p>
@@ -133,10 +139,21 @@
       <li>30 seconds and 3 tries per safe.</li>
       <li><b>Grab it</b> to keep your loot, or <b>risk it</b>: one more answer. Rarer swaps you up. Anything else trips the alarm and the safe pays nothing.</li>
       <li>You get 10 seconds to choose, then 20 seconds for the risk answer.</li>
+      <li>Everything you take goes into your stash. Spend it at the fence on junk to throw, extra seconds, or dynamite.</li>
     </ul>
     <div class="ladder" id="ladder"></div>
     <p class="small">Rarity starts as an estimate and shifts with every real answer.</p>
     <button id="howClose" class="btn gold" type="button">I'M IN</button>
+  </dialog>
+
+  <dialog id="shop" aria-labelledby="shopTitle">
+    <div class="shophead">
+      <h2 id="shopTitle" class="cat">THE FENCE</h2>
+      <b class="take" id="shopBalance">$0K</b>
+    </div>
+    <p class="small">Spend your stash on things to use during the daily job. A safe opened with help is marked in your result.</p>
+    <div class="shoplist" id="shopList"></div>
+    <button id="shopClose" class="btn gold" type="button">DONE</button>
   </dialog>
 
   <script src="js/game.js"></script>

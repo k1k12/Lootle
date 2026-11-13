@@ -30,6 +30,7 @@
     "spinBtn", "actions", "next", "again", "feedback", "dial", "segs", "zones", "zoneGreen", "zoneRed",
     "arc", "knob", "ticks", "timeRing", "cIcon", "cTop", "cMain", "cSub", "summary", "sumRank", "sumTotal", "sumLine",
     "share", "freeAgain", "sumStats", "safeList",
+    "tray", "options", "shop", "shopList", "shopBalance", "shopClose", "shopLink", "shopBtn", "sumShop", "stashLine",
   ]) el[id] = $(id);
 
   // Pixel icons for each kind of loot. '#' = loot colour, '+' = highlight, '-' = shadow.
@@ -57,7 +58,7 @@
     return `<svg viewBox="0 0 8 8" shape-rendering="crispEdges" aria-hidden="true">${rects}</svg>`;
   }
 
-  const money = (k) => "$" + k + "K";
+  const money = (k) => (k >= 1000 ? "$" + (Math.round(k / 10) / 100).toFixed(2).replace(/\.?0+$/, "") + "M" : "$" + k + "K");
   const esc = (s) =>
     String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -147,6 +148,32 @@
         this.tone(880, 0.22, "square", 0.07, i * 0.44 + 0.22, 620);
       }
     },
+    noise(dur, vol, cutoff, delay) {
+      const ctx = this.wake();
+      if (!ctx) return;
+      const t = ctx.currentTime + (delay || 0);
+      const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = cutoff;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(vol, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(filter).connect(gain).connect(ctx.destination);
+      src.start(t);
+    },
+    whoosh() { this.noise(0.25, 0.06, 2400); },
+    splat() { this.noise(0.18, 0.25, 500); this.tone(120, 0.12, "sine", 0.15, 0, 60); },
+    crack() { this.noise(0.06, 0.2, 5000); this.tone(900, 0.05, "square", 0.04); },
+    squeak() { this.tone(900, 0.09, "sine", 0.12, 0, 1700); this.tone(1700, 0.12, "sine", 0.1, 0.09, 800); },
+    clang() { [523, 1247, 1870, 2640].forEach((f) => this.tone(f, 0.7, "triangle", 0.05)); this.noise(0.05, 0.2, 6000); },
+    boom() { this.noise(1.1, 0.45, 260); this.tone(90, 0.9, "sawtooth", 0.12, 0, 30); },
+    lucky() { [1047, 1319, 1568, 2093].forEach((f, i) => this.tone(f, 0.12, "square", 0.06, i * 0.06)); },
+    coin() { this.tone(988, 0.07, "square", 0.05); this.tone(1319, 0.2, "square", 0.05, 0.07); },
     lockout() { this.tone(140, 0.5, "sawtooth", 0.08, 0, 50); },
     fanfare() { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => this.tone(f, 0.16, "square", 0.06, i * 0.13)); },
   };
@@ -340,7 +367,7 @@
     for (let i = 0; i < SAFES; i++) {
       const r = results[i];
       const fresh = animate && game && i === game.index ? "pop" : "";
-      if (r) html += `<i class="${fresh}">${icon(r.tier)}</i>`;
+      if (r) html += `<i class="${fresh}${r.helped ? " helped" : ""}">${icon(r.tier)}</i>`;
       else html += `<i class="${game && i === game.index ? "now" : "todo"}"></i>`;
     }
     el.haul.innerHTML = html;
@@ -390,7 +417,7 @@
       game.index = game.results.length;
       // A reload mid-decision counts as grabbing the last loot.
       const last = game.results[game.index - 1];
-      if (last) api("/api/bank", { seam: last.id, pid: saved.pid, n: game.number }).catch(() => {});
+      if (last) api("/api/bank", { seam: last.id, pid: saved.pid, n: game.number }).then((r) => setBalance(r.balance)).catch(() => {});
       if (game.index >= SAFES) finish(true);
       else openSafe(false);
     } catch (err) {
@@ -409,6 +436,9 @@
     game.tries = risk ? 1 : TRIES;
     game.busy = false;
     game.needsBank = false;
+    if (!risk) game.assisted = false;
+    el.options.hidden = true;
+    el.options.innerHTML = "";
     el.safeCat.textContent = `${game.daily ? "SAFE" : "PRACTICE"} ${game.index + 1} · ${risk ? "SECOND SPIN" : safe.cat.toUpperCase()}`;
     el.prompt.textContent = safe.prompt;
     el.answer.value = "";
@@ -439,6 +469,7 @@
     mode(true);
     show("play");
     el.answer.focus();
+    drawTray();
     startClock(risk ? SECONDS_RISK : SECONDS, resumed ? Math.max(3000, resumed.left) : 0);
   }
 
@@ -490,13 +521,19 @@
 
   // ---------- Answering ----------
   const playBody = (extra) => Object.assign({ seam: game.safes[game.index].id, pid: saved.pid, n: game.number }, extra);
-  const lockSafe = () => api("/api/bank", playBody()).catch(() => {});
+  const lockSafe = () => api("/api/bank", playBody())
+    .then((r) => { if (r && r.balance != null) setBalance(r.balance); })
+    .catch(() => {});
 
-  async function onSubmit(event) {
+  function onSubmit(event) {
     event.preventDefault();
-    if (!game || el.play.hidden || el.answerForm.hidden || game.busy) return;
-    const text = el.answer.value.trim();
-    if (!text) return;
+    if (el.answerForm.hidden) return;
+    submitGuess(el.answer.value.trim(), null);
+  }
+
+  /** Check one guess. `option` is the dynamite button it came from, if any. */
+  async function submitGuess(text, option) {
+    if (!game || el.play.hidden || game.busy || !text) return;
     game.busy = true;
     el.spinBtn.disabled = true;
     pauseClock();
@@ -521,10 +558,12 @@
 
     if (game.risk) {
       const held = game.results[game.index];
-      if (hit.ok && hit.tier > held.tier) return win(hit, true);
-      const why = !hit.ok ? `“${text}” is not in this safe.`
+      if (hit.balance != null) setBalance(hit.balance);
+      // The server decides whether the second spin beat the first.
+      if (hit.ok && (hit.won != null ? hit.won : hit.tier > held.tier)) return win(hit, true);
+      const why = !hit.ok ? "Wrong combination."
         : hit.name === held.name ? "Same answer twice."
-        : `${hit.name} is only ${TIERS[hit.tier].name.toLowerCase()}.`;
+        : `${hit.name} is more common.`;
       return bust("ALARM TRIPPED", `${why} You dropped the ${TIERS[held.tier].name.toLowerCase()}.`, true);
     }
 
@@ -537,12 +576,17 @@
     if (game.tries <= 0) { lockSafe(); return bust("LOCKED OUT", "Out of tries.", false); }
     game.busy = false;
     el.spinBtn.disabled = false;
-    say(`“${text}” is not in this safe.`, true);
-    el.answer.value = "";
-    el.answer.classList.remove("shake");
-    void el.answer.offsetWidth;
-    el.answer.classList.add("shake");
-    el.answer.focus();
+    say("Wrong combination.", true);
+    if (option) {
+      option.disabled = true;
+      option.classList.add("dud");
+    } else {
+      el.answer.value = "";
+      el.answer.classList.remove("shake");
+      void el.answer.offsetWidth;
+      el.answer.classList.add("shake");
+      el.answer.focus();
+    }
     resumeClock();
   }
 
@@ -564,13 +608,16 @@
     mode(false);
     el.actions.hidden = true;
     el.risk.hidden = true;
+    el.tray.hidden = true;
+    el.options.hidden = true;
     say("");
     setAlarm(false);
     centre("LISTENING", "", "", "");
     el.cMain.classList.remove("low");
     await spinTo(hit.tier);
 
-    game.results[game.index] = { id: game.safes[game.index].id, name: hit.name, tier: hit.tier, pct: hit.pct };
+    const helped = !!(hit.assisted || game.assisted || (swapped && game.results[game.index] && game.results[game.index].helped));
+    game.results[game.index] = { id: game.safes[game.index].id, name: hit.name, tier: hit.tier, pct: hit.pct, helped };
     persist();
     syncHud(true);
     centre(t.name, hit.name, "+" + money(t.k), t.color, true);
@@ -643,6 +690,8 @@
     el.risk.hidden = true;
     say(why, true);
     el.again.hidden = true;
+    el.tray.hidden = true;
+    el.options.hidden = true;
     el.next.textContent = game.index === SAFES - 1 ? "GETAWAY" : "NEXT SAFE";
     game.needsBank = false;
     game.busy = false;
@@ -661,7 +710,176 @@
   function spinAgain() {
     stopDecision();
     Sfx.click();
+    // Tell the server the loot is on the line, so backing out cannot keep it.
+    api("/api/risk", playBody()).catch(() => {});
     openSafe(true);
+  }
+
+  // ---------- Stash, items and the fence ----------
+  const bag = { balance: 0, items: {}, shop: [] };
+  const itemInfo = (id) => bag.shop.find((i) => i.id === id);
+  function setBalance(balance) {
+    if (balance == null) return;
+    bag.balance = balance;
+    el.shopBalance.textContent = money(balance);
+    el.stashLine.textContent = balance > 0 ? `Stash ${money(balance)}` : "";
+    if (!el.shop.open) return;
+    for (const b of el.shopList.querySelectorAll("button")) b.disabled = Number(b.dataset.cost) > balance;
+  }
+  async function loadBag() {
+    try {
+      const me = await api(`/api/me?pid=${saved.pid}`);
+      bag.items = me.items || {};
+      bag.shop = me.shop || [];
+      setBalance(me.balance || 0);
+      drawTray();
+    } catch (err) { /* the game works without the shop */ }
+  }
+
+  /** Items can be used on the daily job, before the first answer on a safe. */
+  const canUseItems = () =>
+    game && game.daily && !game.risk && screen === "play" && !el.answerForm.hidden && !game.results[game.index];
+  function drawTray() {
+    const owned = bag.shop.filter((i) => bag.items[i.id] > 0);
+    if (!canUseItems() || !owned.length) { el.tray.hidden = true; return; }
+    el.tray.innerHTML = owned.map((i) => {
+      const n = bag.items[i.id];
+      const many = i.kind === "throw" && n >= 10
+        ? `<button type="button" data-item="${i.id}" data-qty="10" aria-label="Throw 10 ${esc(i.name)}"><span class="emo">${i.emoji}</span><small>THROW 10</small></button>` : "";
+      const verb = i.kind === "throw" ? "Throw" : "Use";
+      return `<button type="button" data-item="${i.id}" data-qty="1" aria-label="${verb} ${esc(i.name)}, ${n} left"><span class="emo">${i.emoji}</span>×${n}</button>${many}`;
+    }).join("");
+    el.tray.hidden = false;
+  }
+
+  /** Send things flying from a button to the safe door, leaving a mark where they land. */
+  const SPLAT = { tomato: "#e2475b", egg: "#fff3b0", duck: "#ffd166", hammer: "#c9c3e6" };
+  const THUD = { tomato: "splat", egg: "crack", duck: "squeak", hammer: "clang" };
+  function fling(id, emoji, from, count) {
+    const door = el.dial.getBoundingClientRect();
+    const start = from.getBoundingClientRect();
+    const shown = reducedMotion ? 0 : Math.min(count, 14);
+    for (let i = 0; i < shown; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * door.width * 0.36;
+      const tx = door.left + door.width / 2 + Math.cos(a) * r;
+      const ty = door.top + door.height / 2 + Math.sin(a) * r;
+      const sx = start.left + start.width / 2, sy = start.top + start.height / 2;
+      const node = document.createElement("span");
+      node.className = "fly";
+      node.textContent = emoji;
+      node.style.left = sx - 17 + "px";
+      node.style.top = sy - 17 + "px";
+      document.body.appendChild(node);
+      const lift = -60 - Math.random() * 60;
+      const flight = node.animate([
+        { transform: "translate(0,0) rotate(0deg) scale(.7)" },
+        { transform: `translate(${(tx - sx) / 2}px, ${(ty - sy) / 2 + lift}px) rotate(300deg) scale(1.25)`, offset: 0.5 },
+        { transform: `translate(${tx - sx}px, ${ty - sy}px) rotate(620deg) scale(.9)` },
+      ], { duration: 430 + Math.random() * 160, delay: i * 70, easing: "cubic-bezier(.3,.1,.7,1)", fill: "forwards" });
+      setTimeout(() => Sfx.whoosh(), i * 70);
+      flight.onfinish = () => {
+        node.remove();
+        Sfx[THUD[id] || "splat"]();
+        const mark = document.createElement("span");
+        mark.className = "splat";
+        mark.style.left = tx + "px";
+        mark.style.top = ty + "px";
+        mark.style.background = SPLAT[id] || "#e2475b";
+        document.body.appendChild(mark);
+        setTimeout(() => mark.remove(), 2300);
+        fx.burst(tx, ty, SPLAT[id] || "#e2475b", 6, 3);
+        if (i === shown - 1) pulse(el.dial, "wobble");
+      };
+    }
+    return shown ? 430 + shown * 70 + 200 : 0;
+  }
+
+  async function useItem(button) {
+    if (!canUseItems() || game.busy) return;
+    const id = button.dataset.item;
+    const info = itemInfo(id);
+    if (!info) return;
+    const qty = Number(button.dataset.qty) || 1;
+    for (const b of el.tray.querySelectorAll("button")) b.disabled = true;
+    let out;
+    try {
+      out = await api("/api/use", playBody({ item: id, qty }));
+    } catch (err) {
+      say(err.status === 429 ? "Easy. Wait a few seconds." : err.message || "That did not work.", true);
+      drawTray();
+      return;
+    }
+    bag.items = out.items || bag.items;
+    if (out.kind === "throw") {
+      const settle = fling(id, info.emoji, button, out.qty || qty);
+      if (out.hint) {
+        game.assisted = true;
+        setTimeout(() => {
+          if (!canUseItems()) return;
+          Sfx.lucky();
+          pulse(el.dial, "boom");
+          say(`Lucky hit. The lock slipped: try “${out.hint}”.`);
+        }, settle);
+      } else {
+        setTimeout(() => { if (canUseItems()) say(qty > 1 ? "Nothing. The door is a mess, though." : "Nothing happened."); }, settle);
+      }
+    } else if (out.kind === "time") {
+      clock.ends += out.seconds * 1000;
+      clock.total = Math.max(clock.total, clock.ends - performance.now());
+      Sfx.coin();
+      pulse(el.dial, "landed");
+      say(`+${out.seconds} seconds.`);
+    } else if (out.kind === "blast") {
+      game.assisted = true;
+      Sfx.boom();
+      pulse(document.body, "shake");
+      pulse(el.dial, "boom");
+      const door = el.dial.getBoundingClientRect();
+      fx.burst(door.left + door.width / 2, door.top + door.height / 2, "#ffd166", 70, 12);
+      el.options.innerHTML = out.options.map((o) => `<button type="button">${esc(o)}</button>`).join("");
+      el.options.hidden = false;
+      say("One of these is the rarest answer in the safe. Two are wrong.");
+    }
+    drawTray();
+  }
+
+  function drawShop() {
+    el.shopList.innerHTML = bag.shop.map((i) => {
+      const own = bag.items[i.id] || 0;
+      const ten = i.kind === "throw"
+        ? `<button type="button" data-item="${i.id}" data-qty="10" data-cost="${i.price * 10}">10<br>${money(i.price * 10)}</button>` : "";
+      return `<div class="item"><span class="emo" aria-hidden="true">${i.emoji}</span>` +
+        `<span class="nm">${esc(i.name)}<small>${own ? "have " + own : ""}</small></span>` +
+        `<span class="bl">${esc(i.blurb)}</span>` +
+        `<span class="buy"><button type="button" data-item="${i.id}" data-qty="1" data-cost="${i.price}">BUY<br>${money(i.price)}</button>${ten}</span></div>`;
+    }).join("");
+    setBalance(bag.balance);
+  }
+  function openShop() {
+    Sfx.click();
+    stopDecision();
+    if (el.shop.open) return;
+    el.shop.showModal();
+    drawShop();
+    loadBag().then(drawShop);
+  }
+  async function buy(button) {
+    const id = button.dataset.item;
+    const qty = Number(button.dataset.qty) || 1;
+    try {
+      const out = await api("/api/buy", { pid: saved.pid, item: id, qty });
+      bag.items = out.items || bag.items;
+      bag.balance = out.balance;
+      Sfx.coin();
+      drawShop();
+      drawTray();
+    } catch (err) {
+      Sfx.miss();
+      el.shop.classList.remove("poor");
+      void el.shop.offsetWidth;
+      el.shop.classList.add("poor");
+    }
   }
 
   // ---------- Summary ----------
@@ -698,7 +916,7 @@
     el.sumLine.textContent = `${big} big score${big === 1 ? "" : "s"} \u00b7 ${busts} empty \u00b7 max $700K`;
     el.sumStats.style.whiteSpace = "";
     el.sumStats.textContent = game.daily
-      ? `Streak ${saved.streak || 1} · Best ${money(saved.best || take)} · New safes at midnight`
+      ? `Streak ${saved.streak || 1} · Best ${money(saved.best || take)} · Stash ${money(bag.balance)} · New safes at midnight`
       : "Practice runs do not count.";
     el.share.textContent = "COPY RESULT";
     el.safeList.innerHTML = game.safes.map((safe, i) => {
@@ -706,8 +924,15 @@
       const chip = `<i>${icon(r.tier)}</i>`;
       return `<details data-safe="${esc(safe.id)}" data-mine="${esc(r.name || "")}"><summary>${chip}<span class="q">${esc(safe.prompt)}</span></summary><div class="answers">Loading...</div></details>`;
     }).join("");
+    el.sumShop.hidden = !game.daily;
     show("summary");
     el.sumRank.focus();
+    // The last safe may still be paying in; refresh the stash line once it has.
+    if (game.daily) setTimeout(() => loadBag().then(() => {
+      if (screen === "summary" && game.daily) {
+        el.sumStats.textContent = `Streak ${saved.streak || 1} · Best ${money(saved.best || take)} · Stash ${money(bag.balance)} · New safes at midnight`;
+      }
+    }), 900);
   }
 
   async function onToggle(event) {
@@ -732,7 +957,7 @@
 
   function shareText() {
     const head = game.daily ? `Lootle #${game.number}` : "Lootle practice run";
-    return `${head}: ${money(takeOf(game.results))}\n${game.results.map((r) => SQUARES[r.tier]).join("")}\nhttps://lootle.app`;
+    return `${head}: ${money(takeOf(game.results))}\n${game.results.map((r) => SQUARES[r.tier] + (r.helped ? "\u{1F9E8}" : "")).join("")}\nhttps://lootle.app`;
   }
   async function share() {
     Sfx.click();
@@ -784,6 +1009,18 @@
     el.help.addEventListener("click", openHow);
     el.howLink.addEventListener("click", openHow);
     el.howClose.addEventListener("click", () => el.how.close());
+    el.shopBtn.addEventListener("click", openShop);
+    el.shopLink.addEventListener("click", openShop);
+    el.sumShop.addEventListener("click", openShop);
+    el.shopClose.addEventListener("click", () => el.shop.close());
+    el.shop.addEventListener("close", () => { drawTray(); if (game && screen === "play" && !el.answerForm.hidden) el.answer.focus(); });
+    el.shopList.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && !b.disabled) buy(b); });
+    el.tray.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && !b.disabled) useItem(b); });
+    el.options.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (b && !b.disabled) submitGuess(b.textContent, b);
+    });
+    loadBag();
     el.mute.addEventListener("click", () => {
       Sfx.muted = !Sfx.muted;
       saved.muted = Sfx.muted;

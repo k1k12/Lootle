@@ -3,17 +3,23 @@
  *
  * Static files in ./public are served by Cloudflare directly. Everything
  * under /api/ lands here. The answer bank lives only in this bundle, so the
- * browser never receives an answer it has not earned.
+ * browser never receives an answer it has not earned. The server also keeps
+ * the score: it decides what each safe paid and credits the player's stash.
  *
  *   GET  /api/job?n=12        today's seven prompts (or ?free=1 for a random set)
- *   POST /api/answer          check a guess, record it, return its gem and rarity
- *   POST /api/bank            lock in a seam (also used when a seam is lost)
- *   GET  /api/reveal          every answer in a seam, once that seam is locked
+ *   POST /api/answer          check a guess, record it, return its loot and rarity
+ *   POST /api/risk            declare a second spin on a safe
+ *   POST /api/bank            lock in a safe (also used when a safe is lost)
+ *   GET  /api/reveal          every answer in a safe, once that safe is locked
+ *   GET  /api/me              stash, items owned and the shop catalogue
+ *   POST /api/buy             buy an item with the stash
+ *   POST /api/use             use an item on the current safe
  *   GET  /api/health          liveness check for uptime monitors
  */
 import { DurableObject } from "cloudflare:workers";
 import { PACKS, SEAMS } from "./seams/index.js";
 import { DECOYS } from "./lexicon.js";
+import { ITEMS, MAX_BUY, catalogue } from "./shop.js";
 import * as core from "./core.js";
 
 const BY_ID = new Map(SEAMS.map((s) => [s.id, s]));
@@ -33,8 +39,13 @@ const json = (data, status = 200) =>
 const bad = (message, status = 400) => json({ error: message }, status);
 
 /**
- * One instance per seam. Holds how often each answer has been given and
- * which players have dug this seam, in the instance's own SQLite database.
+ * One instance per safe. Holds how often each answer has been given and
+ * where every player is with this safe, in the instance's own SQLite database.
+ *
+ * A player's row moves through: (none) -> answered -> done.
+ *   held      the loot tier of their first answer
+ *   risking   they chose a second spin, so banking now pays nothing
+ *   assisted  an item revealed an answer, so their answer is not counted
  */
 export class SeamStore extends DurableObject {
   constructor(ctx, env) {
@@ -44,6 +55,15 @@ export class SeamStore extends DurableObject {
     this.sql.exec(
       "CREATE TABLE IF NOT EXISTS plays (pid TEXT NOT NULL, n INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (pid, n))"
     );
+    // Columns added after launch. Rows from before then were all answered.
+    for (const column of [
+      "answered INTEGER NOT NULL DEFAULT 1",
+      "held INTEGER NOT NULL DEFAULT 0",
+      "risking INTEGER NOT NULL DEFAULT 0",
+      "assisted INTEGER NOT NULL DEFAULT 0",
+    ]) {
+      try { this.sql.exec(`ALTER TABLE plays ADD COLUMN ${column}`); } catch (err) { /* already there */ }
+    }
   }
 
   counts() {
@@ -52,40 +72,73 @@ export class SeamStore extends DurableObject {
     return out;
   }
 
-  status(pid, n) {
-    const rows = this.sql.exec("SELECT done FROM plays WHERE pid = ? AND n = ?", pid, n).toArray();
-    return rows.length ? (rows[0].done ? "done" : "open") : "new";
+  row(pid, n) {
+    const rows = this.sql.exec("SELECT done, answered, held, risking, assisted FROM plays WHERE pid = ? AND n = ?", pid, n).toArray();
+    const r = rows[0];
+    if (!r) return { state: "new", held: 0, risking: false, assisted: false };
+    return {
+      state: r.done ? "done" : r.answered ? "open" : "new",
+      held: r.held, risking: !!r.risking, assisted: !!r.assisted,
+    };
   }
 
-  /** First answer of a player on this seam for this dig. Counted at most once. */
-  first(pid, n, answer, counted) {
-    const state = this.status(pid, n);
-    // Rarity is judged on the counts before this answer, so nobody demotes
-    // their own gem by finding it.
-    const counts = this.counts();
-    if (state === "new") {
-      this.sql.exec("INSERT INTO plays (pid, n, done) VALUES (?, ?, 0)", pid, n);
-      if (counted) {
+  /**
+   * First answer of a player on this safe for this job. Rarity is judged on
+   * the counts before this answer, so nobody demotes their own find. The
+   * answer is counted at most once, and never if an item revealed it.
+   */
+  first(pid, n, seamId, answer, counted) {
+    const before = this.row(pid, n);
+    const { real, rows } = core.rarity(BY_ID.get(seamId), this.counts());
+    const mine = rows.find((r) => r.name === answer);
+    if (before.state === "new") {
+      this.sql.exec(
+        "INSERT INTO plays (pid, n, done, answered, held) VALUES (?, ?, 0, 1, ?) ON CONFLICT (pid, n) DO UPDATE SET answered = 1, held = excluded.held",
+        pid, n, mine.tier
+      );
+      if (counted && !before.assisted) {
         this.sql.exec(
           "INSERT INTO counts (answer, c) VALUES (?, 1) ON CONFLICT (answer) DO UPDATE SET c = c + 1",
           answer
         );
       }
     }
-    return { state, counts };
+    return { state: before.state, assisted: before.assisted, real, rows };
   }
 
-  /** Lock the seam for this player: no more guesses, reveal allowed. */
+  /** The player chose a second spin. From here, banking pays nothing. */
+  risk(pid, n) {
+    const before = this.row(pid, n);
+    if (before.state === "open") this.sql.exec("UPDATE plays SET risking = 1 WHERE pid = ? AND n = ?", pid, n);
+    return before;
+  }
+
+  /** Lock the safe for this player: no more guesses, reveal allowed. */
   finish(pid, n) {
-    const state = this.status(pid, n);
+    const before = this.row(pid, n);
     this.sql.exec(
-      "INSERT INTO plays (pid, n, done) VALUES (?, ?, 1) ON CONFLICT (pid, n) DO UPDATE SET done = 1",
+      "INSERT INTO plays (pid, n, done, answered) VALUES (?, ?, 1, 0) ON CONFLICT (pid, n) DO UPDATE SET done = 1",
       pid, n
     );
-    return { state, counts: this.counts() };
+    return before;
   }
 
-  /** Free digs reuse n = 0, so reopen the seam at the start of each one. */
+  /** An item is about to reveal an answer. Only allowed before the first answer. */
+  assist(pid, n) {
+    const before = this.row(pid, n);
+    if (before.state !== "new") return false;
+    this.sql.exec(
+      "INSERT INTO plays (pid, n, done, answered, assisted) VALUES (?, ?, 0, 0, 1) ON CONFLICT (pid, n) DO UPDATE SET assisted = 1",
+      pid, n
+    );
+    return true;
+  }
+
+  rarityNow(seamId) {
+    return core.rarity(BY_ID.get(seamId), this.counts());
+  }
+
+  /** Practice runs reuse n = 0, so reopen the safe at the start of each one. */
   reopen(pid) {
     this.sql.exec("DELETE FROM plays WHERE pid = ? AND n = 0", pid);
   }
@@ -95,7 +148,52 @@ export class SeamStore extends DurableObject {
   }
 }
 
+/**
+ * One instance per player (an anonymous id made in their browser). Holds
+ * the stash, the items they own, and which safes have already paid out so
+ * no safe can ever be credited twice.
+ */
+export class PlayerStore extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.sql.exec("CREATE TABLE IF NOT EXISTS wallet (id INTEGER PRIMARY KEY CHECK (id = 1), balance INTEGER NOT NULL)");
+    this.sql.exec("INSERT OR IGNORE INTO wallet (id, balance) VALUES (1, 0)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS items (item TEXT PRIMARY KEY, qty INTEGER NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS credits (n INTEGER NOT NULL, seam TEXT NOT NULL, amount INTEGER NOT NULL, PRIMARY KEY (n, seam))");
+  }
+
+  state() {
+    const balance = this.sql.exec("SELECT balance FROM wallet WHERE id = 1").one().balance;
+    const items = {};
+    for (const row of this.sql.exec("SELECT item, qty FROM items WHERE qty > 0")) items[row.item] = row.qty;
+    return { balance, items };
+  }
+
+  /** Pay out one safe. A second call for the same safe and job changes nothing. */
+  credit(n, seam, amount) {
+    const fresh = this.sql.exec("INSERT OR IGNORE INTO credits (n, seam, amount) VALUES (?, ?, ?)", n, seam, amount).rowsWritten > 0;
+    if (fresh && amount > 0) this.sql.exec("UPDATE wallet SET balance = balance + ? WHERE id = 1", amount);
+    return { paid: fresh ? amount : 0, ...this.state() };
+  }
+
+  buy(item, price, qty) {
+    const cost = price * qty;
+    if (this.state().balance < cost) return { ok: false, ...this.state() };
+    this.sql.exec("UPDATE wallet SET balance = balance - ? WHERE id = 1", cost);
+    this.sql.exec("INSERT INTO items (item, qty) VALUES (?, ?) ON CONFLICT (item) DO UPDATE SET qty = qty + excluded.qty", item, qty);
+    return { ok: true, ...this.state() };
+  }
+
+  /** Take items out of the bag. Not ok if they do not own that many. */
+  use(item, qty) {
+    const used = this.sql.exec("UPDATE items SET qty = qty - ? WHERE item = ? AND qty >= ?", qty, item, qty).rowsWritten > 0;
+    return { ok: used, ...this.state() };
+  }
+}
+
 const store = (env, seamId) => env.SEAM.get(env.SEAM.idFromName(seamId));
+const player = (env, pid) => env.PLAYER.get(env.PLAYER.idFromName(pid));
 
 /**
  * If storage is unavailable (for example the free plan's daily quota is used
@@ -110,7 +208,7 @@ async function orElse(promise, fallback) {
   }
 }
 
-/** A daily dig number is accepted a day either side of UTC, to cover time zones. */
+/** A daily job number is accepted a day either side of UTC, to cover time zones. */
 function validDaily(n) {
   const today = core.utcDigNumber();
   return Number.isInteger(n) && n >= 1 && n >= today - 1 && n <= today + 1;
@@ -120,7 +218,7 @@ function publicSeam(seam) {
   return { id: seam.id, cat: seam.cat, prompt: seam.prompt };
 }
 
-async function handleDig(url, env) {
+async function handleJob(url, env) {
   if (url.searchParams.get("free")) {
     const pid = url.searchParams.get("pid") || "";
     const seams = core.randomSeams(SEAMS);
@@ -161,7 +259,7 @@ async function overLimit(limiter, key) {
 }
 const tooMany = () => bad("Too many requests. Wait a few seconds and try again.", 429);
 
-/** Shared checks for the POST routes. Returns { seam, pid, n } or a Response. */
+/** Shared checks for the play routes. Returns { seam, pid, n } or a Response. */
 function parsePlay(body) {
   if (!body) return bad("Bad request.");
   const seam = BY_ID.get(String(body.seam || ""));
@@ -176,6 +274,12 @@ function parsePlay(body) {
   return { seam, pid, n };
 }
 
+/** Pay a safe into the stash. Practice runs (n = 0) never pay. */
+async function payOut(env, pid, n, seamId, tier) {
+  if (n === 0) return { paid: 0 };
+  return orElse(player(env, pid).credit(n, seamId, core.TIER_K[tier] || 0), { paid: 0 });
+}
+
 async function handleAnswer(request, env) {
   const body = await readBody(request);
   const play = parsePlay(body);
@@ -185,43 +289,64 @@ async function handleAnswer(request, env) {
   const guess = typeof body.guess === "string" ? body.guess.slice(0, 60) : "";
   const again = body.again === true;
   const db = store(env, seam.id);
-
   const match = core.matchDetail(seam, guess, LEXICON);
   const name = match && match.name;
-  if (!name) {
-    // A missed second swing ends the seam; a missed first swing costs nothing here.
-    if (again) await orElse(db.finish(pid, n), null);
-    return json({ ok: false });
-  }
 
-  let result;
   if (again) {
-    result = await orElse(db.finish(pid, n), { state: "open", counts: {} });
-    if (result.state !== "open") return bad("That safe is already settled.", 409);
-  } else {
-    result = await orElse(db.first(pid, n, name, n !== 0), { state: "new", counts: {} });
-    if (result.state === "done") return bad("That safe is already settled.", 409);
+    // Second spin: whatever happens, the safe is settled now.
+    const before = await orElse(db.finish(pid, n), { state: "open", held: 0 });
+    if (before.state !== "open") return bad("That safe is already settled.", 409);
+    if (!name) {
+      const bank = await payOut(env, pid, n, seam.id, 0);
+      return json({ ok: false, won: false, balance: bank.balance });
+    }
+    const { real, rows } = await orElse(db.rarityNow(seam.id), core.rarity(seam, {}));
+    const mine = rows.find((r) => r.name === name);
+    const won = mine.tier > before.held;
+    const bank = await payOut(env, pid, n, seam.id, won ? mine.tier : 0);
+    return json({
+      ok: true, won, name, corrected: match.corrected, tier: mine.tier, pct: mine.pct,
+      real, measured: real >= core.PRIOR_PLAYS, deeper: 0, balance: bank.balance,
+    });
   }
 
-  const { real, rows } = core.rarity(seam, result.counts);
-  const mine = rows.find((r) => r.name === name);
+  // A missed first spin costs nothing here; the browser tracks the tries.
+  if (!name) return json({ ok: false });
+
+  const fallback = { state: "new", assisted: false, ...core.rarity(seam, {}) };
+  const result = await orElse(db.first(pid, n, seam.id, name, n !== 0), fallback);
+  if (result.state === "done") return bad("That safe is already settled.", 409);
+  const mine = result.rows.find((r) => r.name === name);
   return json({
     ok: true,
     name,
     corrected: match.corrected,
     tier: mine.tier,
     pct: mine.pct,
-    real,
-    measured: real >= core.PRIOR_PLAYS,
-    deeper: rows.filter((r) => r.tier > mine.tier).length,
+    real: result.real,
+    measured: result.real >= core.PRIOR_PLAYS,
+    deeper: result.rows.filter((r) => r.tier > mine.tier).length,
+    assisted: result.assisted,
   });
+}
+
+async function handleRisk(request, env) {
+  const play = parsePlay(await readBody(request));
+  if (play instanceof Response) return play;
+  const before = await orElse(store(env, play.seam.id).risk(play.pid, play.n), { state: "open" });
+  if (before.state !== "open") return bad("Nothing to risk on that safe.", 409);
+  return json({ ok: true });
 }
 
 async function handleBank(request, env) {
   const play = parsePlay(await readBody(request));
   if (play instanceof Response) return play;
-  await orElse(store(env, play.seam.id).finish(play.pid, play.n), null);
-  return json({ ok: true });
+  const { seam, pid, n } = play;
+  const before = await orElse(store(env, seam.id).finish(pid, n), { state: "done", held: 0, risking: false });
+  // Banking pays the held loot, unless they had already chosen to risk it.
+  const tier = before.state === "open" && !before.risking ? before.held : 0;
+  const bank = before.state === "done" ? {} : await payOut(env, pid, n, seam.id, tier);
+  return json({ ok: true, paid: bank.paid || 0, balance: bank.balance });
 }
 
 async function handleReveal(url, env) {
@@ -240,6 +365,101 @@ async function handleReveal(url, env) {
   });
 }
 
+// ---------- Stash and shop ----------
+
+async function handleMe(url, env) {
+  const pid = url.searchParams.get("pid") || "";
+  if (!PID.test(pid)) return bad("Bad player id.");
+  const state = await orElse(player(env, pid).state(), { balance: 0, items: {} });
+  return json({ ...state, shop: catalogue() });
+}
+
+async function handleBuy(request, env) {
+  const body = await readBody(request);
+  if (!body) return bad("Bad request.");
+  const pid = String(body.pid || "");
+  const item = ITEMS[String(body.item || "")];
+  const qty = Number(body.qty || 1);
+  if (!PID.test(pid)) return bad("Bad player id.");
+  if (!item) return bad("No such item.");
+  if (!Number.isInteger(qty) || qty < 1 || qty > MAX_BUY) return bad("Bad quantity.");
+  const result = await player(env, pid).buy(String(body.item), item.price, qty);
+  if (!result.ok) return json({ error: "Not enough in the stash.", balance: result.balance, items: result.items }, 402);
+  return json(result);
+}
+
+/** Two believable wrong answers: real answers from other safes of the same kind. */
+const wordsOf = (text) => new Set(core.normalise(text).split(" ").filter((w) => w.length > 3));
+
+/**
+ * Two wrong answers for the dynamite. They come from the safes most like
+ * this one (same category, similar wording), so they are not obviously wrong.
+ */
+function decoys(seam) {
+  const mine = wordsOf(seam.prompt);
+  const ranked = SEAMS.filter((other) => other.id !== seam.id)
+    .map((other) => {
+      let score = other.cat === seam.cat ? 2 : 0;
+      for (const w of wordsOf(other.prompt)) if (mine.has(w)) score++;
+      return { other, score: score + Math.random() * 0.5 };
+    })
+    .sort((x, y) => y.score - x.score);
+  const pool = [];
+  for (const { other } of ranked) {
+    for (const [name] of other.answers) {
+      if (!core.matchDetail(seam, name, null) && !pool.includes(name)) pool.push(name);
+    }
+    if (pool.length >= 12) break;
+  }
+  const picks = new Set();
+  for (let guard = 0; picks.size < 2 && guard < 200; guard++) picks.add(pool[Math.floor(Math.random() * pool.length)]);
+  return [...picks];
+}
+
+async function handleUse(request, env) {
+  const body = await readBody(request);
+  const play = parsePlay(body);
+  if (play instanceof Response) return play;
+  const { seam, pid, n } = play;
+  const id = String(body.item || "");
+  const item = ITEMS[id];
+  if (!item) return bad("No such item.");
+  if (n === 0) return bad("Items only work on the daily job.");
+  if (await overLimit(env.LIMIT_ANSWER, pid)) return tooMany();
+
+  const db = store(env, seam.id);
+  if ((await db.row(pid, n)).state !== "new") return bad("Too late for that on this safe.", 409);
+  // Junk can be thrown by the handful; everything else is used one at a time.
+  const wanted = Number(body.qty || 1);
+  const qty = item.kind === "throw" && Number.isInteger(wanted) && wanted >= 1 && wanted <= MAX_BUY ? wanted : 1;
+  const bag = await player(env, pid).use(id, qty);
+  if (!bag.ok) return json({ error: "You do not have enough of those.", items: bag.items }, 402);
+
+  const out = { ok: true, item: id, kind: item.kind, qty, items: bag.items, balance: bag.balance };
+  if (item.kind === "time") {
+    out.seconds = item.seconds;
+  } else if (item.kind === "throw") {
+    out.hit = Math.random() < 1 - Math.pow(1 - item.luck, qty);
+    if (out.hit && (await db.assist(pid, n))) {
+      // A lucky hit shows a middling answer, not the best one.
+      const { rows } = await db.rarityNow(seam.id);
+      const middling = rows.filter((r) => r.tier >= 2 && r.tier <= 4);
+      const pool = middling.length ? middling : rows;
+      out.hint = pool[Math.floor(Math.random() * pool.length)].name;
+    }
+  } else if (item.kind === "blast") {
+    await db.assist(pid, n);
+    const { rows } = await db.rarityNow(seam.id);
+    const options = [rows[0].name, ...decoys(seam)];
+    for (let i = options.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [options[i], options[j]] = [options[j], options[i]];
+    }
+    out.options = options;
+  }
+  return json(out);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -250,10 +470,15 @@ export default {
     const ip = request.headers.get("cf-connecting-ip") || "local";
     if (await overLimit(env.LIMIT_IP, ip)) return tooMany();
     try {
-      if (request.method === "GET" && url.pathname === "/api/job") return await handleDig(url, env);
-      if (request.method === "GET" && url.pathname === "/api/reveal") return await handleReveal(url, env);
-      if (request.method === "POST" && url.pathname === "/api/answer") return await handleAnswer(request, env);
-      if (request.method === "POST" && url.pathname === "/api/bank") return await handleBank(request, env);
+      const route = `${request.method} ${url.pathname}`;
+      if (route === "GET /api/job") return await handleJob(url, env);
+      if (route === "GET /api/reveal") return await handleReveal(url, env);
+      if (route === "GET /api/me") return await handleMe(url, env);
+      if (route === "POST /api/answer") return await handleAnswer(request, env);
+      if (route === "POST /api/risk") return await handleRisk(request, env);
+      if (route === "POST /api/bank") return await handleBank(request, env);
+      if (route === "POST /api/buy") return await handleBuy(request, env);
+      if (route === "POST /api/use") return await handleUse(request, env);
       return bad("Not found.", 404);
     } catch (err) {
       console.error(err);
