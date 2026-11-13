@@ -14,20 +14,22 @@
   const SAFES = 7;
   const SECONDS = 30;
   const SECONDS_RISK = 20;
+  const DECIDE_SECONDS = 10;
   const TRIES = 3;
   const EPOCH = Date.UTC(2026, 10, 12);
   const STORE_KEY = "lootle:v1";
   const CIRC = 2 * Math.PI * 138;
+  const TIME_CIRC = 2 * Math.PI * 100;
   const SQUARES = ["\u{1F6A8}", "⬜", "\u{1F7E9}", "\u{1F7E8}", "\u{1F7E5}", "\u{1F7EA}", "\u{1F48E}"];
 
   const $ = (id) => document.getElementById(id);
   const el = {};
   for (const id of [
-    "jobLabel", "mute", "muteWave", "muteX", "take", "safeNo", "tries", "haul", "intro", "ladder",
+    "fx", "help", "how", "howClose", "howLink", "mute", "muteWave", "muteX", "take", "tries", "haul", "intro", "ladder",
     "startDaily", "startFree", "statsLine", "play", "safeCat", "prompt", "risk", "answerForm", "answer",
     "spinBtn", "actions", "next", "again", "feedback", "dial", "segs", "zones", "zoneGreen", "zoneRed",
-    "arc", "knob", "cTop", "cMain", "cSub", "summary", "sumRank", "sumTotal", "sumLine", "share",
-    "freeAgain", "sumStats", "safeList",
+    "arc", "knob", "ticks", "timeRing", "cTop", "cMain", "cSub", "summary", "sumRank", "sumTotal", "sumLine",
+    "share", "freeAgain", "sumStats", "safeList",
   ]) el[id] = $(id);
 
   const money = (k) => "$" + k + "K";
@@ -104,17 +106,15 @@
     miss() { this.tone(170, 0.22, "sawtooth", 0.07, 0, 80); },
     tick() { this.tone(880, 0.04, "square", 0.04); },
     heartbeat() { this.tone(60, 0.12, "sine", 0.3); this.tone(52, 0.14, "sine", 0.22, 0.16); },
-    /** Dial clicks that start fast and slow down, then a clunk and a rising chime. */
-    spin(seconds, tier) {
-      const clicks = Math.max(4, Math.round(seconds * 14));
-      for (let i = 0; i < clicks; i++) {
-        const p = i / clicks;
-        this.tone(1500 - p * 500, 0.03, "square", 0.035, seconds * (1 - Math.pow(1 - p, 2.2)));
-      }
-      this.tone(70, 0.25, "sine", 0.25, seconds);
-      const notes = [392, 494, 587, 698, 784, 988, 1175];
-      for (let n = 0; n <= tier; n++) this.tone(notes[n], 0.14, "square", 0.06, seconds + 0.06 + n * 0.07);
-      if (tier === 6) this.tone(2093, 0.6, "triangle", 0.07, seconds + 0.6);
+    /** One dial click; pitch climbs as the dial turns further. */
+    dialClick(fraction) { this.tone(900 + fraction * 1100, 0.022, "square", 0.03); },
+    /** A segment lighting up as the arc passes into it. */
+    segment(n) { this.tone([392, 494, 587, 698, 784, 988][n] || 988, 0.16, "triangle", 0.09); },
+    clunk() { this.tone(70, 0.28, "sine", 0.3); this.tone(140, 0.08, "square", 0.05); },
+    payout(tier) {
+      const notes = [523, 659, 784, 1047, 1319, 1568];
+      for (let n = 0; n < tier; n++) this.tone(notes[n], 0.13, "square", 0.055, 0.05 + n * 0.06);
+      if (tier === 6) [2093, 2637, 3136].forEach((f, i) => this.tone(f, 0.5, "triangle", 0.06, 0.5 + i * 0.12));
     },
     siren() {
       for (let i = 0; i < 4; i++) {
@@ -126,30 +126,132 @@
     fanfare() { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => this.tone(f, 0.16, "square", 0.06, i * 0.13)); },
   };
 
+  // ---------- Particles (one full-window canvas above everything) ----------
+  const fx = {
+    ctx: el.fx.getContext("2d"), parts: [], running: false,
+    size() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      el.fx.width = innerWidth * dpr;
+      el.fx.height = innerHeight * dpr;
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    },
+    burst(x, y, color, count, power) {
+      if (reducedMotion) return;
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = power * (0.35 + Math.random());
+        this.parts.push({
+          x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - power * 0.45,
+          size: 3 + Math.random() * 5, spin: Math.random() * 6, life: 50 + Math.random() * 40,
+          color: Math.random() < 0.25 ? "#ffffff" : color,
+        });
+      }
+      if (!this.running) { this.running = true; requestAnimationFrame(() => this.step()); }
+    },
+    step() {
+      const c = this.ctx;
+      c.clearRect(0, 0, innerWidth, innerHeight);
+      this.parts = this.parts.filter((p) => p.life-- > 0 && p.y < innerHeight + 20);
+      for (const p of this.parts) {
+        p.vy += 0.32; p.vx *= 0.985; p.x += p.vx; p.y += p.vy; p.spin += 0.25;
+        c.globalAlpha = Math.min(1, p.life / 24);
+        c.fillStyle = p.color;
+        // chunky square "coins" that flip as they fall
+        const w = p.size * Math.abs(Math.cos(p.spin));
+        c.fillRect(p.x - w / 2, p.y - p.size / 2, Math.max(1, w), p.size);
+      }
+      c.globalAlpha = 1;
+      if (this.parts.length) requestAnimationFrame(() => this.step());
+      else { this.running = false; c.clearRect(0, 0, innerWidth, innerHeight); }
+    },
+  };
+  fx.size();
+  window.addEventListener("resize", () => fx.size());
+
   // ---------- The dial ----------
-  function setArc(fraction, color, seconds) {
-    const ease = seconds ? `${seconds}s cubic-bezier(.15,.8,.2,1)` : "0s";
-    el.arc.style.transition = `stroke-dasharray ${ease}`;
-    el.knob.style.transition = `transform ${ease}`;
-    if (color) el.arc.style.stroke = color;
+  const dial = { at: 0, color: "#ffd166" };
+  /** Draw the dial at a fraction of a full turn (0 to 1). */
+  function drawDial(fraction, color) {
+    dial.at = fraction;
+    if (color) {
+      dial.color = color;
+      el.arc.style.stroke = color;
+      el.dial.style.setProperty("--glow", color);
+    }
     el.arc.style.strokeDasharray = `${fraction * CIRC} ${CIRC + 1}`;
     el.knob.style.transform = `rotate(${fraction * 360}deg)`;
+    el.ticks.style.transform = `rotate(${-fraction * 540}deg)`;
   }
-  /** Sweep from zero to the tier. Rarer loot travels further and takes longer. */
+  function knobPoint(fraction) {
+    const r = el.dial.getBoundingClientRect();
+    const a = fraction * Math.PI * 2 - Math.PI / 2;
+    const radius = r.width * (138 / 340);
+    return [r.left + r.width / 2 + Math.cos(a) * radius, r.top + r.height / 2 + Math.sin(a) * radius];
+  }
+  function lightSegments(upTo) {
+    [...el.segs.children].forEach((seg, i) => seg.classList.toggle("lit", i < upTo));
+  }
+  function flashSegment(i) {
+    const seg = el.segs.children[i];
+    if (!seg) return;
+    seg.classList.add("flash", "lit");
+    setTimeout(() => seg.classList.remove("flash"), 140);
+  }
+  /** Move the dial from where it is to a target, calling back on every frame. */
+  function turn(target, ms, color, onFrame) {
+    return new Promise((resolve) => {
+      const from = dial.at;
+      if (reducedMotion || ms <= 0) { drawDial(target, color); return resolve(); }
+      const start = performance.now();
+      const frame = (now) => {
+        const t = Math.min(1, (now - start) / ms);
+        const eased = 1 - Math.pow(1 - t, 4);
+        const prev = dial.at;
+        drawDial(from + (target - from) * eased, color);
+        if (onFrame) onFrame(prev, dial.at);
+        if (t < 1) requestAnimationFrame(frame);
+        else resolve();
+      };
+      requestAnimationFrame(frame);
+    });
+  }
+  /**
+   * The spin. The arc sweeps from zero; every 15 degrees clicks, every loot
+   * segment it enters lights up with a rising note, and where it stops it
+   * throws coins. Rarer loot travels further and takes longer, so the wait
+   * itself tells you it is good.
+   */
   async function spinTo(tier) {
-    setArc(0, TIERS[tier].color, 0);
-    void el.arc.getBoundingClientRect();
-    const seconds = reducedMotion ? 0 : 0.9 + tier * 0.3;
-    Sfx.spin(seconds, tier);
-    setArc(tier / 6, TIERS[tier].color, seconds);
-    await wait(seconds * 1000 + 80);
-    if (tier === 6) pulse("flash");
+    const color = TIERS[tier].color;
+    lightSegments(0);
+    drawDial(0, color);
+    await turn(tier / 6, 1100 + tier * 420, color, (prev, now) => {
+      if (Math.floor(now * 24) > Math.floor(prev * 24)) Sfx.dialClick(now);
+      const seg = Math.floor(now * 6 - 1e-6);
+      if (seg > Math.floor(prev * 6 - 1e-6) || (prev === 0 && now > 0)) {
+        flashSegment(Math.floor(now * 6 - 1e-6));
+        Sfx.segment(Math.floor(now * 6 - 1e-6));
+      }
+    });
+    lightSegments(tier);
+    Sfx.clunk();
+    Sfx.payout(tier);
+    pulse(el.dial, "boom");
+    pulse(el.dial, "landed");
+    const [x, y] = knobPoint(tier / 6);
+    fx.burst(x, y, color, 14 + tier * 12, 4 + tier * 1.4);
+    if (tier >= 5) pulse(document.body, "shake");
+    if (tier === 6) {
+      for (let i = 0; i < 6; i++) {
+        setTimeout(() => { const [bx, by] = knobPoint(i / 6); fx.burst(bx, by, TIERS[i + 1].color, 26, 9); }, 120 + i * 90);
+      }
+    }
   }
-  function pulse(name) {
+  function pulse(node, name) {
     if (reducedMotion) return;
-    el.dial.classList.remove(name);
-    void el.dial.offsetWidth;
-    el.dial.classList.add(name);
+    node.classList.remove(name);
+    void node.offsetWidth;
+    node.classList.add(name);
   }
   function centre(top, main, sub, color, subIsMoney) {
     el.cTop.textContent = top;
@@ -162,6 +264,7 @@
   function setAlarm(on, heldTier) {
     document.body.classList.toggle("alarm", on);
     el.zones.toggleAttribute("hidden", !on);
+    el.arc.style.visibility = on ? "hidden" : "";
     el.segs.style.display = on ? "none" : "";
     if (on) {
       const held = (heldTier / 6) * CIRC;
@@ -170,20 +273,47 @@
       el.zoneGreen.style.strokeDashoffset = `${-(held + 3)}`;
     }
   }
+  function setTimeRing(fraction) {
+    el.timeRing.style.strokeDasharray = `${TIME_CIRC}`;
+    el.timeRing.style.strokeDashoffset = `${TIME_CIRC * (1 - fraction)}`;
+  }
+  /** On the intro the dial breathes through the loot colours on its own. */
+  let screen = "intro";
+  function idle(now) {
+    if (screen === "intro" && !reducedMotion) {
+      const f = 0.08 + 0.42 * (0.5 + 0.5 * Math.sin(now / 2400));
+      drawDial(f, TIERS[Math.min(6, 1 + Math.floor(f * 6))].color);
+      lightSegments(Math.floor(f * 6));
+    }
+    requestAnimationFrame(idle);
+  }
 
   // ---------- Game state ----------
   let game = null; // { daily, number, safes, results, index, tries, risk, busy }
   const clock = { raf: 0, ends: 0, left: 0, total: 0, lastSecond: -1, running: false };
   const takeOf = (results) => results.reduce((sum, r) => sum + TIERS[r.tier].k, 0);
 
-  function syncHud() {
+  let shownTake = 0;
+  function syncHud(animate) {
     const results = game ? game.results : [];
-    el.take.textContent = money(takeOf(results));
-    el.safeNo.textContent = game ? `${Math.min(game.index + 1, SAFES)} / ${SAFES}` : "- / 7";
+    const total = takeOf(results);
+    if (animate && !reducedMotion && total !== shownTake) {
+      const from = shownTake, start = performance.now();
+      const step = (now) => {
+        const t = Math.min(1, (now - start) / 600);
+        el.take.textContent = money(Math.round(from + (total - from) * t));
+        if (t < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    } else {
+      el.take.textContent = money(total);
+    }
+    shownTake = total;
     let html = "";
     for (let i = 0; i < SAFES; i++) {
       const r = results[i];
-      if (r) html += r.tier ? `<i style="background:${TIERS[r.tier].color}"></i>` : '<i class="bust"></i>';
+      const fresh = animate && game && i === game.index ? " pop" : "";
+      if (r) html += r.tier ? `<i class="${fresh.trim()}" style="background:${TIERS[r.tier].color}"></i>` : `<i class="bust${fresh}"></i>`;
       else html += `<i class="${game && i === game.index ? "now" : ""}"></i>`;
     }
     el.haul.innerHTML = html;
@@ -198,10 +328,13 @@
     el.tries.setAttribute("aria-label", `${game.tries} tries left`);
   }
   function show(name) {
+    screen = name;
     el.intro.hidden = name !== "intro";
     el.play.hidden = name !== "play";
     el.summary.hidden = name !== "summary";
     el.dial.hidden = name === "summary";
+    document.body.classList.toggle("at-intro", name === "intro");
+    document.body.classList.toggle("playing", name === "play");
     document.body.classList.toggle("done", name === "summary");
   }
   function mode(answering) {
@@ -231,7 +364,6 @@
       // A reload mid-decision counts as grabbing the last loot.
       const last = game.results[game.index - 1];
       if (last) api("/api/bank", { seam: last.id, pid: saved.pid, n: game.number }).catch(() => {});
-      el.jobLabel.textContent = daily ? "JOB #" + String(today).padStart(3, "0") : "PRACTICE";
       if (game.index >= SAFES) finish(true);
       else openSafe(false);
     } catch (err) {
@@ -249,22 +381,23 @@
     game.tries = risk ? 1 : TRIES;
     game.busy = false;
     game.needsBank = false;
-    el.safeCat.textContent = `SAFE ${game.index + 1} · ${risk ? "SECOND SPIN" : safe.cat.toUpperCase()}`;
+    el.safeCat.textContent = `${game.daily ? "SAFE" : "PRACTICE"} ${game.index + 1} · ${risk ? "SECOND SPIN" : safe.cat.toUpperCase()}`;
     el.prompt.textContent = safe.prompt;
     el.answer.value = "";
-    el.answer.placeholder = risk ? "Something rarer" : "Type your answer";
+    el.answer.placeholder = risk ? "Something rarer" : "Your answer";
     el.spinBtn.textContent = risk ? "RISK IT" : "SPIN";
     el.spinBtn.disabled = false;
     say("");
     if (risk) {
-      el.risk.innerHTML = `Beat <b>${esc(held.name)}</b>. Land in the green and you swap up. Land in the red, repeat yourself or miss, and this safe pays nothing.`;
+      el.risk.innerHTML = `Beat <b>${esc(held.name)}</b> or the alarm trips.`;
       setAlarm(true, held.tier);
-      setArc(held.tier / 6, TIERS[held.tier].color, 0);
+      drawDial(held.tier / 6, TIERS[held.tier].color);
       // Hide the held arc so the red alarm zone underneath it shows; the knob still marks the spot.
       el.arc.style.strokeDasharray = `0 ${CIRC + 1}`;
     } else {
       setAlarm(false);
-      setArc(0, "#ffd166", 0);
+      lightSegments(0);
+      turn(0, 450, "#ffd166");
     }
     el.risk.hidden = !risk;
     drawTries();
@@ -286,17 +419,18 @@
     cancelAnimationFrame(clock.raf);
     clock.ends = performance.now() + clock.left;
     clock.running = true;
+    el.dial.classList.add("timing");
     const tick = (now) => {
       if (!clock.running) return;
       clock.left = Math.max(0, clock.ends - now);
+      setTimeRing(clock.left / clock.total);
       const secs = Math.ceil(clock.left / 1000);
       if (secs !== clock.lastSecond) {
         clock.lastSecond = secs;
         const low = secs <= 5;
-        centre(game.risk ? "ALARM IN" : "TIME LEFT", "0:" + String(secs).padStart(2, "0"),
-          game.risk ? "HOLDING " + TIERS[game.results[game.index].tier].name : "RARER TURNS FURTHER",
-          game.risk ? "#ff8fa0" : "");
+        centre(game.risk ? "ALARM IN" : "", String(secs), "", game.risk ? "#ff8fa0" : "");
         el.cMain.classList.toggle("low", low);
+        el.dial.classList.toggle("low", low);
         if (secs > 0) {
           if (game.risk) Sfx.heartbeat();
           else if (low) Sfx.tick();
@@ -309,6 +443,7 @@
   }
   function pauseClock() {
     clock.running = false;
+    el.dial.classList.remove("timing", "low");
     cancelAnimationFrame(clock.raf);
     clock.left = Math.max(0, clock.ends - performance.now());
   }
@@ -357,8 +492,8 @@
     game.tries--;
     drawTries();
     Sfx.miss();
-    pulse("wobble");
-    if (game.tries <= 0) { lockSafe(); return bust("LOCKED OUT", "Three tries and it would not open.", false); }
+    pulse(el.dial, "wobble");
+    if (game.tries <= 0) { lockSafe(); return bust("LOCKED OUT", "Out of tries.", false); }
     game.busy = false;
     el.spinBtn.disabled = false;
     say(`“${text}” is not in this safe.`, true);
@@ -376,7 +511,7 @@
     lockSafe();
     if (game.risk) {
       const held = game.results[game.index];
-      bust("ALARM TRIPPED", `Out of time. You dropped the ${TIERS[held.tier].name.toLowerCase()}.`, true);
+      bust("ALARM TRIPPED", "Out of time.", true);
     } else {
       bust("LOCKED OUT", "Out of time.", false);
     }
@@ -390,25 +525,56 @@
     el.risk.hidden = true;
     say("");
     setAlarm(false);
-    centre(swapped ? "SWAPPING UP" : "CRACKING", "...", "", "");
+    centre("", "", "", "");
     el.cMain.classList.remove("low");
     await spinTo(hit.tier);
 
     game.results[game.index] = { id: game.safes[game.index].id, name: hit.name, tier: hit.tier, pct: hit.pct };
     persist();
-    syncHud();
+    syncHud(true);
     centre(t.name, hit.name, "+" + money(t.k), t.color, true);
-    const read = hit.corrected ? `Read as ${hit.name}. ` : "";
-    const share = read + (hit.measured ? `${hit.pct}% of crews said this.` : `About ${hit.pct}% of crews are expected to say this.`);
     const canRisk = !swapped && hit.deeper > 0;
-    say(canRisk ? `${share} ${hit.deeper} rarer answer${hit.deeper === 1 ? "" : "s"} still in this safe.`
-      : `${share}${hit.deeper ? "" : " Nothing rarer in this safe."}`);
+    const bits = [];
+    if (hit.corrected) bits.push(`Read as ${hit.name}`);
+    bits.push(hit.measured ? `${hit.pct}% of crews` : `~${hit.pct}% of crews`);
+    if (canRisk) bits.push(`${hit.deeper} rarer left`);
+    say(bits.join(" \u00b7 "));
     el.again.hidden = !canRisk;
-    el.next.textContent = canRisk ? "GRAB IT AND GO" : game.index === SAFES - 1 ? "GETAWAY" : "NEXT SAFE";
+    el.next.textContent = canRisk ? "GRAB IT" : game.index === SAFES - 1 ? "GETAWAY" : "NEXT";
     game.needsBank = !swapped;
     game.busy = false;
     el.actions.hidden = false;
     el.next.focus();
+    if (canRisk) startDecision(DECIDE_SECONDS);
+  }
+
+  // ---------- Grab-or-risk countdown: no time to look anything up ----------
+  let deciding = 0;
+  function startDecision(seconds) {
+    stopDecision();
+    const total = seconds * 1000;
+    const ends = performance.now() + total;
+    let lastSecond = -1;
+    el.dial.classList.add("timing");
+    const tick = (now) => {
+      const left = Math.max(0, ends - now);
+      setTimeRing(left / total);
+      const secs = Math.ceil(left / 1000);
+      if (secs !== lastSecond) {
+        lastSecond = secs;
+        el.next.textContent = `GRAB IT \u00b7 ${secs}`;
+        el.dial.classList.toggle("low", secs <= 3);
+        if (secs <= 3 && secs > 0) Sfx.tick();
+      }
+      if (left <= 0) { deciding = 0; return next(); }
+      deciding = requestAnimationFrame(tick);
+    };
+    deciding = requestAnimationFrame(tick);
+  }
+  function stopDecision() {
+    if (deciding) cancelAnimationFrame(deciding);
+    deciding = 0;
+    el.dial.classList.remove("timing", "low");
   }
 
   function bust(title, why, siren) {
@@ -416,26 +582,25 @@
     el.answer.blur();
     game.results[game.index] = { id: game.safes[game.index].id, name: null, tier: 0, pct: null };
     persist();
-    syncHud();
+    syncHud(true);
     setAlarm(false);
-    setArc(0, "#e2475b", reducedMotion ? 0 : 0.5);
+    lightSegments(0);
+    const [x, y] = knobPoint(dial.at);
+    fx.burst(x, y, "#e2475b", 30, 6);
+    turn(0, 500, "#e2475b");
     if (siren) {
       Sfx.siren();
-      if (!reducedMotion) {
-        document.body.classList.remove("siren");
-        void document.body.offsetWidth;
-        document.body.classList.add("siren");
-      }
+      pulse(document.body, "siren");
     } else {
       Sfx.lockout();
     }
-    pulse("wobble");
-    centre(title, "$0", "THIS SAFE PAYS NOTHING", "#ff8fa0");
+    pulse(el.dial, "wobble");
+    centre(title, "$0", "", "#ff8fa0");
     el.cMain.classList.remove("low");
     el.risk.hidden = true;
     say(why, true);
     el.again.hidden = true;
-    el.next.textContent = game.index === SAFES - 1 ? "GETAWAY" : "NEXT SAFE";
+    el.next.textContent = game.index === SAFES - 1 ? "GETAWAY" : "NEXT";
     game.needsBank = false;
     game.busy = false;
     mode(false);
@@ -443,6 +608,7 @@
   }
 
   function next() {
+    stopDecision();
     Sfx.click();
     if (game.needsBank) lockSafe();
     game.index++;
@@ -450,6 +616,7 @@
     else openSafe(false);
   }
   function spinAgain() {
+    stopDecision();
     Sfx.click();
     openSafe(true);
   }
@@ -474,7 +641,10 @@
       saved.best = Math.max(saved.best || 0, take);
       save();
     }
-    if (!resumed) Sfx.fanfare();
+    if (!resumed) {
+      Sfx.fanfare();
+      fx.burst(innerWidth / 2, innerHeight * 0.3, "#ffd166", 40 + Math.round(take / 8), 9);
+    }
     game.index = SAFES;
     syncHud();
 
@@ -482,11 +652,11 @@
     const busts = game.results.filter((r) => r.tier === 0).length;
     el.sumRank.textContent = rank(take);
     el.sumTotal.textContent = money(take);
-    el.sumLine.textContent = `${big} big score${big === 1 ? "" : "s"}, ${busts} empty safe${busts === 1 ? "" : "s"}, out of a possible $700K.`;
+    el.sumLine.textContent = `${big} big score${big === 1 ? "" : "s"} \u00b7 ${busts} empty \u00b7 max $700K`;
     el.sumStats.style.whiteSpace = "";
     el.sumStats.textContent = game.daily
-      ? `Streak ${saved.streak || 1} · Best ${money(saved.best || take)} · Jobs ${saved.played || 1}. New safes at midnight.`
-      : "Practice runs do not count towards your streak or the rarity numbers.";
+      ? `Streak ${saved.streak || 1} · Best ${money(saved.best || take)} · New safes at midnight`
+      : "Practice runs do not count.";
     el.share.textContent = "COPY RESULT";
     el.safeList.innerHTML = game.safes.map((safe, i) => {
       const r = game.results[i];
@@ -545,16 +715,17 @@
   function boot() {
     el.ladder.innerHTML = TIERS.slice(1)
       .map((t) => `<span><i style="background:${t.color}"></i>${t.name}<b>${money(t.k)}</b></span>`).join("");
-    el.jobLabel.textContent = "JOB #" + String(today).padStart(3, "0");
+    centre("JOB #" + String(today).padStart(3, "0"), "7 SAFES", "", "");
     setMuteLabel();
     syncHud();
+    requestAnimationFrame(idle);
 
     const progress = saved.progress && saved.progress.number === today ? saved.progress : null;
-    if (progress && progress.results.length >= SAFES) el.startDaily.textContent = "TONIGHT'S RESULT";
-    else if (progress && progress.results.length) el.startDaily.textContent = "BACK TO THE JOB";
+    if (progress && progress.results.length >= SAFES) el.startDaily.textContent = "RESULT";
+    else if (progress && progress.results.length) el.startDaily.textContent = "CONTINUE";
     if (saved.played) {
       const live = saved.lastFinished >= today - 1 ? saved.streak : 0;
-      el.statsLine.textContent = `Streak ${live} · Best ${money(saved.best || 0)} · Jobs ${saved.played}`;
+      el.statsLine.textContent = `Streak ${live} \u00b7 Best ${money(saved.best || 0)}`;
     }
 
     el.startDaily.addEventListener("click", () => start(true));
@@ -566,6 +737,10 @@
     el.again.addEventListener("click", spinAgain);
     el.share.addEventListener("click", share);
     el.safeList.addEventListener("toggle", onToggle, true);
+    const openHow = () => { Sfx.click(); el.how.showModal(); };
+    el.help.addEventListener("click", openHow);
+    el.howLink.addEventListener("click", openHow);
+    el.howClose.addEventListener("click", () => el.how.close());
     el.mute.addEventListener("click", () => {
       Sfx.muted = !Sfx.muted;
       saved.muted = Sfx.muted;
