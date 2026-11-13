@@ -17,7 +17,7 @@
  *   GET  /api/health          liveness check for uptime monitors
  */
 import { DurableObject } from "cloudflare:workers";
-import { PACKS, VAULTS, SEAMS } from "./seams/index.js";
+import { PACKS, VAULTS, HARD, SHORT, RETIRED, SEAMS } from "./seams/index.js";
 import { DECOYS } from "./lexicon.js";
 import { ITEMS, MAX_BUY, catalogue } from "./shop.js";
 import * as core from "./core.js";
@@ -222,25 +222,29 @@ function playable(n) {
   return Number.isInteger(n) && n >= 1 && n <= core.utcDigNumber() + 1;
 }
 
+const POOLS = { packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD };
+const IN_PLAY = SEAMS.filter((s) => !RETIRED.has(s.id));
 const VAULT_IDS = new Set(VAULTS.flat().map((s) => s.id));
+const HARD_IDS = new Set(HARD.flat().map((s) => s.id));
 
-/** What the browser may know about a safe. Vault safes also say how big the list is. */
+/** What the browser may know about a safe. Big lists say how long they are; hard safes say so. */
 function publicSeam(seam) {
   const out = { id: seam.id, cat: seam.cat, prompt: seam.prompt };
   if (VAULT_IDS.has(seam.id)) out.size = seam.answers.length;
+  if (HARD_IDS.has(seam.id)) out.hard = true;
   return out;
 }
 
 async function handleJob(url, env) {
   if (url.searchParams.get("free")) {
     const pid = url.searchParams.get("pid") || "";
-    const seams = core.randomSeams(SEAMS);
+    const seams = core.randomSeams(IN_PLAY);
     if (PID.test(pid)) await orElse(Promise.all(seams.map((s) => store(env, s.id).reopen(pid))), null);
     return json({ number: 0, seams: seams.map(publicSeam) });
   }
   const n = Number(url.searchParams.get("n"));
   if (!playable(n)) return bad("That job is not open.", 404);
-  const seams = core.safesForJob(PACKS, VAULTS, n);
+  const seams = core.jobSafes(POOLS, n);
   const out = { number: n, seams: seams.map(publicSeam) };
   // For an archive job, say whether this player has already been through it.
   const pid = url.searchParams.get("pid") || "";
@@ -291,7 +295,7 @@ function parsePlay(body) {
   if (!PID.test(pid)) return bad("Bad player id.");
   if (n !== 0) {
     if (!playable(n)) return bad("That job is not open.", 404);
-    if (!core.safesForJob(PACKS, VAULTS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
+    if (!core.jobSafes(POOLS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
   }
   // Live means it pays and counts: today's job, not practice, not the archive.
   return { seam, pid, n, live: validDaily(n) && body.archive !== true };
