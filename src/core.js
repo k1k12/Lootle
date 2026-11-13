@@ -226,6 +226,32 @@ export function seamsForDig(packs, number) {
   return deal(all, mulberry32(0x5afe00 + pass))[later % perPass];
 }
 
+/** The first job that ends on a vault safe. Earlier jobs stay as they were. */
+export const VAULT_FROM = 4;
+
+const vaultCache = new WeakMap();
+
+/**
+ * A full job: six ordinary safes, then one vault safe (a big list) to finish.
+ * Vault packs are shuffled one at a time in order, so adding a pack to the
+ * end never changes a job that has already been played. Once every vault
+ * safe has been used, later rounds reshuffle them all together.
+ */
+export function safesForJob(packs, vaults, number) {
+  const day = seamsForDig(packs, number);
+  const total = vaults.reduce((sum, v) => sum + v.length, 0);
+  if (!total || number < VAULT_FROM) return day;
+  let first = vaultCache.get(vaults);
+  if (!first) {
+    first = vaults.flatMap((v, i) => shuffled(v, mulberry32(0xb16000 + i)));
+    vaultCache.set(vaults, first);
+  }
+  const index = number - VAULT_FROM;
+  const round = Math.floor(index / total);
+  const order = round === 0 ? first : shuffled(vaults.flat(), mulberry32(0xb16f00 + round));
+  return [...day.slice(0, SEAMS_PER_DIG - 1), order[index % total]];
+}
+
 export function randomSeams(bank) {
   return shuffled(bank, Math.random).slice(0, SEAMS_PER_DIG);
 }
