@@ -25,7 +25,7 @@
   const $ = (id) => document.getElementById(id);
   const el = {};
   for (const id of [
-    "fx", "help", "how", "archive", "archiveLink", "archiveClose", "archiveNote", "jobList", "sumArchive", "howClose", "howLink", "mute", "muteWave", "muteX", "take", "tries", "haul", "intro", "ladder",
+    "fx", "help", "how", "archive", "archiveLink", "archiveClose", "archiveNote", "jobList", "sumArchive", "sumCrowd", "howClose", "howLink", "mute", "muteWave", "muteX", "take", "tries", "haul", "intro", "ladder",
     "startDaily", "startFree", "statsLine", "play", "safeCat", "prompt", "risk", "answerForm", "answer",
     "spinBtn", "actions", "next", "again", "feedback", "dial", "segs", "zones", "zoneGreen", "zoneRed",
     "arc", "knob", "ticks", "timeRing", "cIcon", "cTop", "cMain", "cSub", "summary", "sumRank", "sumTotal", "sumLine",
@@ -963,6 +963,8 @@
       : game.past ? `From the archive, job #${game.number}. No stash money, no streak.`
       : "Practice runs do not count.";
     el.share.textContent = "COPY RESULT";
+    el.sumCrowd.textContent = "";
+    game.crowd = "";
     el.safeList.innerHTML = game.safes.map((safe, i) => {
       const r = game.results[i];
       const chip = `<i>${icon(r.tier)}</i>`;
@@ -971,6 +973,7 @@
     el.sumShop.hidden = !game.daily;
     show("summary");
     el.sumRank.focus();
+    if (game.daily) setTimeout(() => showCrowd(game, 2), 700);
     // The last safe may still be paying in; refresh the stash line once it has.
     if (game.daily) setTimeout(() => loadBag().then(() => {
       if (screen === "summary" && game.daily) {
@@ -999,9 +1002,30 @@
     }
   }
 
+  /** Ask how this job ranks against everyone else who has finished it today. */
+  async function showCrowd(job, tries) {
+    try {
+      const r = await api("/api/finish", { pid: saved.pid, n: job.number });
+      if (job !== game || screen !== "summary") return;
+      if (!r.ok) {
+        // The last safe may not have been paid in yet. Try once more.
+        if (tries > 1) setTimeout(() => showCrowd(job, tries - 1), 1500);
+        return;
+      }
+      const crews = r.players.toLocaleString("en-GB");
+      job.crowd = r.players < 5 ? ""
+        : r.place === 1 ? `Top score so far out of ${crews} crews`
+        : `Beat ${r.beat}% of ${crews} crews`;
+      el.sumCrowd.textContent = r.players < 5
+        ? `You are crew number ${crews} to finish tonight's job. Share it to bring in some competition.`
+        : r.place === 1 ? `Top score so far tonight, out of ${crews} crews.`
+        : `You beat ${r.beat}% of the ${crews} crews who have finished tonight.`;
+    } catch (err) { /* the results still stand without it */ }
+  }
+
   function shareText() {
     const head = game.daily ? `Lootle #${game.number}` : game.past ? `Lootle #${game.number} (archive)` : "Lootle practice run";
-    return `${head}: ${money(takeOf(game.results))}\n${game.results.map((r) => SQUARES[r.tier] + (r.helped ? "\u{1F9E8}" : "")).join("")}\nhttps://lootle.app`;
+    return `${head}: ${money(takeOf(game.results))}${game.crowd ? "\n" + game.crowd : ""}\n${game.results.map((r) => SQUARES[r.tier] + (r.helped ? "\u{1F9E8}" : "")).join("")}\nhttps://lootle.app`;
   }
   async function share() {
     Sfx.click();

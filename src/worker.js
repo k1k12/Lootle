@@ -14,6 +14,7 @@
  *   GET  /api/me              stash, items owned and the shop catalogue
  *   POST /api/buy             buy an item with the stash
  *   POST /api/use             use an item on the current safe
+ *   POST /api/finish          record a finished job and say how it ranks
  *   GET  /api/health          liveness check for uptime monitors
  */
 import { DurableObject } from "cloudflare:workers";
@@ -183,6 +184,12 @@ export class PlayerStore extends DurableObject {
     this.sql.exec("UPDATE wallet SET balance = balance - ? WHERE id = 1", cost);
     this.sql.exec("INSERT INTO items (item, qty) VALUES (?, ?) ON CONFLICT (item) DO UPDATE SET qty = qty + excluded.qty", item, qty);
     return { ok: true, ...this.state() };
+  }
+
+  /** What a job paid in total, and how many of its safes are settled. */
+  takeFor(n) {
+    const row = this.sql.exec("SELECT COUNT(*) AS safes, COALESCE(SUM(amount), 0) AS take FROM credits WHERE n = ?", n).one();
+    return { safes: row.safes, take: row.take };
   }
 
   /** Take items out of the bag. Not ok if they do not own that many. */
@@ -487,6 +494,51 @@ async function handleUse(request, env) {
   return json(out);
 }
 
+/**
+ * One per daily job: the final take of every player who finished it, so a
+ * player can be told how they did against everyone else.
+ */
+export class JobStore extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.sql.exec("CREATE TABLE IF NOT EXISTS scores (pid TEXT PRIMARY KEY, take INTEGER NOT NULL)");
+  }
+
+  /** Record a finished job (once per player) and return where it stands. */
+  submit(pid, take) {
+    this.sql.exec("INSERT OR IGNORE INTO scores (pid, take) VALUES (?, ?)", pid, take);
+    const mine = this.sql.exec("SELECT take FROM scores WHERE pid = ?", pid).one().take;
+    const row = this.sql.exec(
+      "SELECT COUNT(*) AS players, COALESCE(SUM(take < ?), 0) AS below, COALESCE(SUM(take > ?), 0) AS above FROM scores", mine, mine,
+    ).one();
+    return { players: row.players, below: row.below, above: row.above, take: mine };
+  }
+}
+
+/** A finished daily job: work out the take from what was actually paid, then rank it. */
+async function handleFinish(request, env) {
+  const body = await readBody(request);
+  if (!body) return bad("Bad request.");
+  const pid = String(body.pid || "");
+  const n = Number(body.n);
+  if (!PID.test(pid)) return bad("Bad player id.");
+  if (!validDaily(n)) return bad("That job is not open.", 404);
+  if (await overLimit(env.LIMIT_ANSWER, pid)) return tooMany();
+  const done = await orElse(player(env, pid).takeFor(n), { safes: 0, take: 0 });
+  // Every safe has to be settled first, or people could rank half a job.
+  if (done.safes < core.SEAMS_PER_DIG) return json({ ok: false });
+  const rank = await orElse(env.JOB.get(env.JOB.idFromName("job-" + n)).submit(pid, done.take), null);
+  if (!rank) return json({ ok: false });
+  const others = rank.players - 1;
+  return json({
+    ok: true,
+    players: rank.players,
+    place: rank.above + 1,
+    beat: others > 0 ? Math.round((rank.below / others) * 100) : 0,
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -506,6 +558,7 @@ export default {
       if (route === "POST /api/bank") return await handleBank(request, env);
       if (route === "POST /api/buy") return await handleBuy(request, env);
       if (route === "POST /api/use") return await handleUse(request, env);
+      if (route === "POST /api/finish") return await handleFinish(request, env);
       return bad("Not found.", 404);
     } catch (err) {
       console.error(err);
