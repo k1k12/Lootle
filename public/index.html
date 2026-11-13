@@ -42,6 +42,7 @@
       <button id="startDaily" class="btn gold big" type="button">BREAK IN</button>
       <div class="links">
         <button id="startFree" class="link" type="button">Practice run</button>
+        <button id="archiveLink" class="link" type="button">Archive</button>
         <button id="howLink" class="link" type="button">The plan</button>
         <button id="shopLink" class="link" type="button">Shop</button>
       </div>
@@ -125,11 +126,19 @@
         <button id="share" class="btn gold" type="button">COPY RESULT</button>
         <button id="sumShop" class="btn" type="button">SPEND IT</button>
         <button id="freeAgain" class="btn" type="button">PRACTICE RUN</button>
+        <button id="sumArchive" class="btn" type="button">ARCHIVE</button>
       </div>
       <p class="small" id="sumStats" aria-live="polite"></p>
       <div id="safeList"></div>
     </section>
   </main>
+
+  <dialog id="archive" aria-labelledby="archiveTitle">
+    <h2 id="archiveTitle" class="cat">THE ARCHIVE</h2>
+    <p class="small" id="archiveNote">Old jobs, free to play once each. No stash money and no streak.</p>
+    <div class="joblist" id="jobList"></div>
+    <button id="archiveClose" class="btn gold" type="button">DONE</button>
+  </dialog>
 
   <dialog id="how" aria-labelledby="howTitle">
     <h2 id="howTitle" class="cat">THE PLAN</h2>
@@ -139,6 +148,7 @@
       <li>30 seconds and 3 tries per safe.</li>
       <li><b>Grab it</b> to keep your loot, or <b>risk it</b>: one more answer. Rarer swaps you up. Anything else trips the alarm and the safe pays nothing.</li>
       <li>You get 10 seconds to choose, then 20 seconds for the risk answer.</li>
+      <li>Safes get harder as the night goes on. The last one is the vault: a specialist list most people cannot crack cold.</li>
       <li>Everything you take goes into your stash. Spend it at the fence on junk to throw, extra seconds, or dynamite.</li>
     </ul>
     <div class="ladder" id="ladder"></div>

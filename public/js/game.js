@@ -25,7 +25,7 @@
   const $ = (id) => document.getElementById(id);
   const el = {};
   for (const id of [
-    "fx", "help", "how", "howClose", "howLink", "mute", "muteWave", "muteX", "take", "tries", "haul", "intro", "ladder",
+    "fx", "help", "how", "archive", "archiveLink", "archiveClose", "archiveNote", "jobList", "sumArchive", "howClose", "howLink", "mute", "muteWave", "muteX", "take", "tries", "haul", "intro", "ladder",
     "startDaily", "startFree", "statsLine", "play", "safeCat", "prompt", "risk", "answerForm", "answer",
     "spinBtn", "actions", "next", "again", "feedback", "dial", "segs", "zones", "zoneGreen", "zoneRed",
     "arc", "knob", "ticks", "timeRing", "cIcon", "cTop", "cMain", "cSub", "summary", "sumRank", "sumTotal", "sumLine",
@@ -400,29 +400,44 @@
     el.feedback.classList.toggle("bad", !!bad);
   }
   function persist() {
-    if (!game.daily) return;
-    saved.progress = { number: game.number, safes: game.safes, results: game.results };
+    if (!game.daily && !game.past) return;
+    saved[game.past ? "pastProgress" : "progress"] = { number: game.number, safes: game.safes, results: game.results };
     save();
   }
 
-  async function start(daily) {
+  /** Start today's job (daily), a practice run, or an archive job (past = its number). */
+  async function start(daily, past) {
     Sfx.click();
     el.startDaily.disabled = el.startFree.disabled = el.freeAgain.disabled = true;
     try {
-      const progress = daily && saved.progress && saved.progress.number === today ? saved.progress : null;
-      const safes = progress
-        ? progress.safes
-        : (await api(daily ? `/api/job?n=${today}` : `/api/job?free=1&pid=${saved.pid}`)).seams;
-      game = { daily, number: daily ? today : 0, safes, results: progress ? progress.results : [] };
+      const number = daily ? today : past || 0;
+      const kept = daily ? saved.progress : past ? saved.pastProgress : null;
+      const progress = kept && kept.number === number ? kept : null;
+      let safes = progress && progress.safes;
+      if (!safes) {
+        const job = await api(number ? `/api/job?n=${number}&pid=${saved.pid}${past ? "&archive=1" : ""}` : `/api/job?free=1&pid=${saved.pid}`);
+        if (past && job.played) {
+          // Played before on this player id but not saved here: mark it and stay put.
+          saved.archive = saved.archive || {};
+          saved.archive[past] = saved.archive[past] || { played: true };
+          save();
+          drawArchive("You have already played job #" + past + ".");
+          return;
+        }
+        safes = job.seams;
+      }
+      if (el.archive.open) el.archive.close();
+      game = { daily, past: !!past, number, safes, results: progress ? progress.results : [] };
       game.index = game.results.length;
       // A reload mid-decision counts as grabbing the last loot.
       const last = game.results[game.index - 1];
-      if (last) api("/api/bank", { seam: last.id, pid: saved.pid, n: game.number }).then((r) => setBalance(r.balance)).catch(() => {});
+      if (last) api("/api/bank", { seam: last.id, pid: saved.pid, n: game.number, archive: !!past }).then((r) => setBalance(r.balance)).catch(() => {});
       if (game.index >= SAFES) finish(true);
       else openSafe(false);
     } catch (err) {
       el.statsLine.textContent = "Could not reach the vault. Check your connection and try again.";
-      show("intro");
+      if (el.archive.open) el.archiveNote.textContent = "Could not load that job. Try again.";
+      else show("intro");
     } finally {
       el.startDaily.disabled = el.startFree.disabled = el.freeAgain.disabled = false;
     }
@@ -439,7 +454,7 @@
     if (!risk) game.assisted = false;
     el.options.hidden = true;
     el.options.innerHTML = "";
-    el.safeCat.textContent = `${game.daily ? "SAFE" : "PRACTICE"} ${game.index + 1} · ${risk ? "SECOND SPIN" : safe.cat.toUpperCase()}`;
+    el.safeCat.textContent = `${game.daily ? "SAFE" : game.past ? `JOB #${game.number} \u00b7 SAFE` : "PRACTICE"} ${game.index + 1} · ${risk ? "SECOND SPIN" : safe.hard ? "THE VAULT \u00b7 HARD" : safe.size ? `${safe.cat.toUpperCase()} \u00b7 ${safe.size} ANSWERS` : safe.cat.toUpperCase()}`;
     el.prompt.textContent = safe.prompt;
     el.answer.value = "";
     el.answer.placeholder = risk ? "Something rarer" : "Your answer";
@@ -520,7 +535,7 @@
   }
 
   // ---------- Answering ----------
-  const playBody = (extra) => Object.assign({ seam: game.safes[game.index].id, pid: saved.pid, n: game.number }, extra);
+  const playBody = (extra) => Object.assign({ seam: game.safes[game.index].id, pid: saved.pid, n: game.number }, game.past ? { archive: true } : null, extra);
   const lockSafe = () => api("/api/bank", playBody())
     .then((r) => { if (r && r.balance != null) setBalance(r.balance); })
     .catch(() => {});
@@ -882,6 +897,29 @@
     }
   }
 
+  // ---------- Archive ----------
+  const jobDate = (n) => new Date(EPOCH + (n - 1) * 86400000)
+    .toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+  function drawArchive(note) {
+    el.archiveNote.textContent = note || "Old jobs, free to play once each. No stash money and no streak.";
+    const done = saved.archive || {};
+    let html = "";
+    for (let n = today - 1; n >= 1; n--) {
+      const d = done[n];
+      const midway = saved.pastProgress && saved.pastProgress.number === n && !d;
+      const status = d ? (d.take != null ? money(d.take) : "PLAYED") : midway ? "BACK IN" : "PLAY";
+      html += `<button type="button" data-job="${n}" class="${d ? "done" : ""}"${d ? " disabled" : ""}>` +
+        `<span class="num">#${String(n).padStart(3, "0")}</span><span>${jobDate(n)}</span><span class="go">${status}</span></button>`;
+    }
+    el.jobList.innerHTML = html || '<p class="small">Nothing here yet. Come back tomorrow.</p>';
+  }
+  function openArchive() {
+    Sfx.click();
+    stopDecision();
+    drawArchive();
+    if (!el.archive.open) el.archive.showModal();
+  }
+
   // ---------- Summary ----------
   function rank(k) {
     if (k >= 600) return "MASTERMIND";
@@ -902,6 +940,11 @@
       saved.best = Math.max(saved.best || 0, take);
       save();
     }
+    if (game.daily || game.past) {
+      saved.archive = saved.archive || {};
+      saved.archive[game.number] = { take, tiers: game.results.map((r) => r.tier) };
+      save();
+    }
     if (!resumed) {
       Sfx.fanfare();
       fx.burst(innerWidth / 2, innerHeight * 0.3, "#ffd166", 40 + Math.round(take / 8), 9);
@@ -917,6 +960,7 @@
     el.sumStats.style.whiteSpace = "";
     el.sumStats.textContent = game.daily
       ? `Streak ${saved.streak || 1} · Best ${money(saved.best || take)} · Stash ${money(bag.balance)} · New safes at midnight`
+      : game.past ? `From the archive, job #${game.number}. No stash money, no streak.`
       : "Practice runs do not count.";
     el.share.textContent = "COPY RESULT";
     el.safeList.innerHTML = game.safes.map((safe, i) => {
@@ -956,7 +1000,7 @@
   }
 
   function shareText() {
-    const head = game.daily ? `Lootle #${game.number}` : "Lootle practice run";
+    const head = game.daily ? `Lootle #${game.number}` : game.past ? `Lootle #${game.number} (archive)` : "Lootle practice run";
     return `${head}: ${money(takeOf(game.results))}\n${game.results.map((r) => SQUARES[r.tier] + (r.helped ? "\u{1F9E8}" : "")).join("")}\nhttps://lootle.app`;
   }
   async function share() {
@@ -1009,6 +1053,13 @@
     el.help.addEventListener("click", openHow);
     el.howLink.addEventListener("click", openHow);
     el.howClose.addEventListener("click", () => el.how.close());
+    el.archiveLink.addEventListener("click", openArchive);
+    el.sumArchive.addEventListener("click", openArchive);
+    el.archiveClose.addEventListener("click", () => el.archive.close());
+    el.jobList.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (b && !b.disabled) start(false, Number(b.dataset.job));
+    });
     el.shopBtn.addEventListener("click", openShop);
     el.shopLink.addEventListener("click", openShop);
     el.sumShop.addEventListener("click", openShop);

@@ -17,7 +17,7 @@
  *   GET  /api/health          liveness check for uptime monitors
  */
 import { DurableObject } from "cloudflare:workers";
-import { PACKS, SEAMS } from "./seams/index.js";
+import { PACKS, VAULTS, HARD, SHORT, RETIRED, SEAMS } from "./seams/index.js";
 import { DECOYS } from "./lexicon.js";
 import { ITEMS, MAX_BUY, catalogue } from "./shop.js";
 import * as core from "./core.js";
@@ -214,20 +214,46 @@ function validDaily(n) {
   return Number.isInteger(n) && n >= 1 && n >= today - 1 && n <= today + 1;
 }
 
+/**
+ * Any job up to today can be opened. Older ones are the archive: they can
+ * be played once for fun, but pay nothing and are not counted.
+ */
+function playable(n) {
+  return Number.isInteger(n) && n >= 1 && n <= core.utcDigNumber() + 1;
+}
+
+const POOLS = { packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD };
+const IN_PLAY = SEAMS.filter((s) => !RETIRED.has(s.id));
+const VAULT_IDS = new Set(VAULTS.flat().map((s) => s.id));
+const HARD_IDS = new Set(HARD.flat().map((s) => s.id));
+
+/** What the browser may know about a safe. Big lists say how long they are; hard safes say so. */
 function publicSeam(seam) {
-  return { id: seam.id, cat: seam.cat, prompt: seam.prompt };
+  const out = { id: seam.id, cat: seam.cat, prompt: seam.prompt };
+  if (VAULT_IDS.has(seam.id)) out.size = seam.answers.length;
+  if (HARD_IDS.has(seam.id)) out.hard = true;
+  return out;
 }
 
 async function handleJob(url, env) {
   if (url.searchParams.get("free")) {
     const pid = url.searchParams.get("pid") || "";
-    const seams = core.randomSeams(SEAMS);
+    const seams = core.randomSeams(IN_PLAY);
     if (PID.test(pid)) await orElse(Promise.all(seams.map((s) => store(env, s.id).reopen(pid))), null);
     return json({ number: 0, seams: seams.map(publicSeam) });
   }
   const n = Number(url.searchParams.get("n"));
-  if (!validDaily(n)) return bad("That job is not open.", 404);
-  return json({ number: n, seams: core.seamsForDig(PACKS, n).map(publicSeam) });
+  if (!playable(n)) return bad("That job is not open.", 404);
+  const seams = core.jobSafes(POOLS, n);
+  const out = { number: n, seams: seams.map(publicSeam) };
+  // For an archive job, say whether this player has already been through it.
+  const pid = url.searchParams.get("pid") || "";
+  if ((url.searchParams.get("archive") || !validDaily(n)) && PID.test(pid)) {
+    out.archive = true;
+    const rows = await orElse(Promise.all(seams.map((s) => store(env, s.id).row(pid, n))), []);
+    out.played = rows.some((r) => r.state !== "new");
+  }
+  return json(out);
 }
 
 async function readBody(request) {
@@ -268,15 +294,16 @@ function parsePlay(body) {
   if (!seam) return bad("Unknown safe.");
   if (!PID.test(pid)) return bad("Bad player id.");
   if (n !== 0) {
-    if (!validDaily(n)) return bad("That job is not open.", 404);
-    if (!core.seamsForDig(PACKS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
+    if (!playable(n)) return bad("That job is not open.", 404);
+    if (!core.jobSafes(POOLS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
   }
-  return { seam, pid, n };
+  // Live means it pays and counts: today's job, not practice, not the archive.
+  return { seam, pid, n, live: validDaily(n) && body.archive !== true };
 }
 
-/** Pay a safe into the stash. Practice runs (n = 0) never pay. */
-async function payOut(env, pid, n, seamId, tier) {
-  if (n === 0) return { paid: 0 };
+/** Pay a safe into the stash. Practice runs and archive jobs never pay. */
+async function payOut(env, live, pid, n, seamId, tier) {
+  if (!live) return { paid: 0 };
   return orElse(player(env, pid).credit(n, seamId, core.TIER_K[tier] || 0), { paid: 0 });
 }
 
@@ -284,7 +311,7 @@ async function handleAnswer(request, env) {
   const body = await readBody(request);
   const play = parsePlay(body);
   if (play instanceof Response) return play;
-  const { seam, pid, n } = play;
+  const { seam, pid, n, live } = play;
   if (await overLimit(env.LIMIT_ANSWER, pid)) return tooMany();
   const guess = typeof body.guess === "string" ? body.guess.slice(0, 60) : "";
   const again = body.again === true;
@@ -297,13 +324,13 @@ async function handleAnswer(request, env) {
     const before = await orElse(db.finish(pid, n), { state: "open", held: 0 });
     if (before.state !== "open") return bad("That safe is already settled.", 409);
     if (!name) {
-      const bank = await payOut(env, pid, n, seam.id, 0);
+      const bank = await payOut(env, live, pid, n, seam.id, 0);
       return json({ ok: false, won: false, balance: bank.balance });
     }
     const { real, rows } = await orElse(db.rarityNow(seam.id), core.rarity(seam, {}));
     const mine = rows.find((r) => r.name === name);
     const won = mine.tier > before.held;
-    const bank = await payOut(env, pid, n, seam.id, won ? mine.tier : 0);
+    const bank = await payOut(env, live, pid, n, seam.id, won ? mine.tier : 0);
     return json({
       ok: true, won, name, corrected: match.corrected, tier: mine.tier, pct: mine.pct,
       real, measured: real >= core.PRIOR_PLAYS, deeper: 0, balance: bank.balance,
@@ -314,7 +341,7 @@ async function handleAnswer(request, env) {
   if (!name) return json({ ok: false });
 
   const fallback = { state: "new", assisted: false, ...core.rarity(seam, {}) };
-  const result = await orElse(db.first(pid, n, seam.id, name, n !== 0), fallback);
+  const result = await orElse(db.first(pid, n, seam.id, name, live), fallback);
   if (result.state === "done") return bad("That safe is already settled.", 409);
   const mine = result.rows.find((r) => r.name === name);
   return json({
@@ -341,11 +368,11 @@ async function handleRisk(request, env) {
 async function handleBank(request, env) {
   const play = parsePlay(await readBody(request));
   if (play instanceof Response) return play;
-  const { seam, pid, n } = play;
+  const { seam, pid, n, live } = play;
   const before = await orElse(store(env, seam.id).finish(pid, n), { state: "done", held: 0, risking: false });
   // Banking pays the held loot, unless they had already chosen to risk it.
   const tier = before.state === "open" && !before.risking ? before.held : 0;
-  const bank = before.state === "done" ? {} : await payOut(env, pid, n, seam.id, tier);
+  const bank = before.state === "done" ? {} : await payOut(env, live, pid, n, seam.id, tier);
   return json({ ok: true, paid: bank.paid || 0, balance: bank.balance });
 }
 
@@ -420,11 +447,11 @@ async function handleUse(request, env) {
   const body = await readBody(request);
   const play = parsePlay(body);
   if (play instanceof Response) return play;
-  const { seam, pid, n } = play;
+  const { seam, pid, n, live } = play;
   const id = String(body.item || "");
   const item = ITEMS[id];
   if (!item) return bad("No such item.");
-  if (n === 0) return bad("Items only work on the daily job.");
+  if (!live) return bad("Items only work on the daily job.");
   if (await overLimit(env.LIMIT_ANSWER, pid)) return tooMany();
 
   const db = store(env, seam.id);

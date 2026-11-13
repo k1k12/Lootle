@@ -1,7 +1,7 @@
 // Run with: node tests/run.js
 import assert from "node:assert/strict";
 import * as core from "../src/core.js";
-import { PACKS, SEAMS as bank } from "../src/seams/index.js";
+import { PACKS, VAULTS, HARD, SHORT, RETIRED, SEAMS as bank } from "../src/seams/index.js";
 import { DECOYS } from "../src/lexicon.js";
 import { ITEMS, MAX_BUY, catalogue } from "../src/shop.js";
 
@@ -90,7 +90,7 @@ const firstPass = PACKS.reduce((sum, pack) => sum + Math.floor(pack.length / 7),
   }
   ok(firstPass >= 21, "at least three weeks before any repeat");
   // Later passes: still seven a day, no repeats within a pass.
-  const perPass = Math.floor(bank.length / 7);
+  const perPass = Math.floor(PACKS.flat().length / 7);
   const seen = new Set();
   for (let d = firstPass + 1; d <= firstPass + perPass; d++) {
     const picks = core.seamsForDig(PACKS, d);
@@ -104,6 +104,78 @@ const firstPass = PACKS.reduce((sum, pack) => sum + Math.floor(pack.length / 7),
   const after = Array.from({ length: firstPass }, (_, i) => core.seamsForDig(grown, i + 1).map((s) => s.id).join());
   ok(JSON.stringify(before) === JSON.stringify(after), "adding a pack keeps earlier days unchanged");
   ok(core.seamsForDig(grown, firstPass + 1).every((s) => s.id.startsWith("x")), "new pack is dealt next");
+}
+{
+  // Vault safes: one closes each job from VAULT_FROM, and none repeats in a round.
+  const vaultIds = new Set(VAULTS.flat().map((s) => s.id));
+  const total = vaultIds.size;
+  ok(total >= 21, "at least three weeks of vault safes");
+  for (const v of VAULTS.flat()) ok(v.answers.length >= 18, `${v.id}: a vault safe is a big list`);
+  for (let d = 1; d < core.VAULT_FROM; d++) {
+    ok(core.safesForJob(PACKS, VAULTS, d).map((s) => s.id).join() === core.seamsForDig(PACKS, d).map((s) => s.id).join(),
+      "jobs before the vault launch are unchanged");
+  }
+  const seen = new Set();
+  for (let d = core.VAULT_FROM; d < core.VAULT_FROM + total; d++) {
+    const job = core.safesForJob(PACKS, VAULTS, d);
+    ok(job.length === 7 && new Set(job.map((s) => s.id)).size === 7, "seven different safes with a vault");
+    ok(job.slice(0, 6).every((s) => !vaultIds.has(s.id)) && vaultIds.has(job[6].id), "the vault is the last safe only");
+    ok(!seen.has(job[6].id), "no vault repeats in the first round");
+    seen.add(job[6].id);
+  }
+  ok(vaultIds.has(core.safesForJob(PACKS, VAULTS, core.VAULT_FROM + total * 3 + 2)[6].id), "later rounds still end on a vault");
+  // Appending a vault pack keeps the first round as it was.
+  const more = [...VAULTS, [{ id: "y0", cat: "Test", prompt: "y.", answers: [["a", 1], ["b", 6]] }]];
+  const same = Array.from({ length: total }, (_, i) => core.safesForJob(PACKS, more, core.VAULT_FROM + i)[6].id === core.safesForJob(PACKS, VAULTS, core.VAULT_FROM + i)[6].id);
+  ok(same.every(Boolean), "adding a vault pack keeps earlier jobs unchanged");
+  // Big lists still forgive typos and still refuse a different real answer.
+  const v = (id, text) => core.matchAnswer(bank.find((s) => s.id === id), text, lexicon);
+  ok(v("elements", "praseodimium") === "Praseodymium", "long element names forgive a slip");
+  ok(v("elements", "aluminum") === "Aluminium", "American spelling is accepted");
+  ok(v("africa-countries", "Niger") === "Niger" && v("africa-countries", "Nigeria") === "Nigeria", "Niger and Nigeria stay apart");
+  ok(v("western-asia", "Iran") === null, "Iran is not in the UN's Western Asia");
+  ok(v("english-monarchs", "henry 8") === "Henry VIII" && v("english-monarchs", "Henry the Eighth") === "Henry VIII", "regnal numbers can be typed as digits or words");
+  ok(v("bible-books", "2 John") === "2 John" && v("bible-books", "John") === "John", "numbered books stay apart");
+  ok(v("us-presidents", "FDR") === "Franklin D. Roosevelt" && v("us-presidents", "teddy roosevelt") === "Theodore Roosevelt", "the two Roosevelts stay apart");
+  ok(v("pokemon-first-151", "bulbasuar") === "Bulbasaur", "a famous name forgives a slip");
+}
+{
+  // The current mix: four short safes, two big lists, one hard safe to finish.
+  const pools = { packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD };
+  const kind = (s) => (HARD.flat().includes(s) ? "hard" : VAULTS.flat().includes(s) ? "big" : "short");
+  for (let d = 1; d < core.MIX_FROM; d++) {
+    ok(core.jobSafes(pools, d).map((s) => s.id).join() === core.safesForJob(PACKS, VAULTS, d).map((s) => s.id).join(),
+      "jobs before the new mix are unchanged");
+  }
+  for (const id of RETIRED) ok(bank.some((s) => s.id === id), `retired id ${id} exists`);
+  ok(SHORT.flat().length >= 56 && VAULTS.flat().length >= 28 && HARD.flat().length >= 21, "two weeks of each kind before a repeat");
+  for (const h of HARD.flat()) ok(h.answers.length >= 7, `${h.id}: a hard safe still has a real list`);
+  const lastSeen = new Map();
+  for (let d = core.MIX_FROM; d < core.MIX_FROM + 120; d++) {
+    const job = core.jobSafes(pools, d);
+    ok(job.length === 7 && new Set(job.map((s) => s.id)).size === 7, "seven different safes in the mix");
+    ok(job.map(kind).join() === "short,short,short,short,big,big,hard", "four short, two big, one hard, in that order");
+    ok(job.every((s) => !RETIRED.has(s.id)), "retired safes are never dealt");
+    for (const s of job) {
+      if (lastSeen.has(s.id)) ok(d - lastSeen.get(s.id) >= 3, `${s.id} does not come back within three days`);
+      lastSeen.set(s.id, d);
+    }
+  }
+  const early = new Set();
+  for (let d = 1; d < core.MIX_FROM; d++) core.safesForJob(PACKS, VAULTS, d).forEach((s) => early.add(s.id));
+  for (let d = core.MIX_FROM; d < core.MIX_FROM + 7; d++) {
+    ok(core.jobSafes(pools, d).every((s) => !early.has(s.id)), "the first week of the mix repeats nothing from the days before it");
+  }
+  // Adding packs later must not change jobs already dealt.
+  const stub = (id) => ({ id, cat: "Test", prompt: "z.", answers: [["a", 1], ["b", 6]] });
+  const grown = { packs: PACKS, vaults: [...VAULTS, [stub("zv")]], short: [...SHORT, [stub("zs")]], hard: [...HARD, [stub("zh")]] };
+  const same = Array.from({ length: 7 }, (_, i) => core.jobSafes(grown, core.MIX_FROM + i).map((s) => s.id).join() === core.jobSafes(pools, core.MIX_FROM + i).map((s) => s.id).join());
+  ok(same.every(Boolean), "adding packs keeps the first week of the mix unchanged");
+  const v = (id, text) => core.matchAnswer(bank.find((s) => s.id === id), text, lexicon);
+  ok(v("capital-cities", "Kiev") === "Kyiv" && v("capital-cities", "La Paz") === "La Paz" && v("capital-cities", "Sucre") === "Sucre", "capitals accept old names and both capitals");
+  ok(v("all-countries", "Holland") === "Netherlands" && v("all-countries", "Atlantis") === null, "all-countries takes common names only");
+  ok(v("nhl-teams", "Leafs") === "Toronto Maple Leafs" && v("mlb-teams", "Yankees") === "New York Yankees", "teams answer to their nicknames");
+  ok(v("design-patterns", "factory") === "Factory Method" && v("design-patterns", "abstract factory") === "Abstract Factory", "the two factories stay apart");
 }
 ok(core.utcDigNumber(Date.UTC(2026, 10, 12, 9)) === 1, "launch day is dig #1");
 ok(core.utcDigNumber(Date.UTC(2026, 10, 13, 0, 0, 1)) === 2, "next day is dig #2");
