@@ -431,7 +431,8 @@ const wordsOf = (text) => new Set(core.normalise(text).split(" ").filter((w) => 
  */
 function decoys(seam) {
   const mine = wordsOf(seam.prompt);
-  const ranked = SEAMS.filter((other) => other.id !== seam.id)
+  // Retired safes are left out: several have one-letter answers ("A", "B").
+  const ranked = IN_PLAY.filter((other) => other.id !== seam.id)
     .map((other) => {
       let score = other.cat === seam.cat ? 2 : 0;
       for (const w of wordsOf(other.prompt)) if (mine.has(w)) score++;
@@ -441,7 +442,7 @@ function decoys(seam) {
   const pool = [];
   for (const { other } of ranked) {
     for (const [name] of other.answers) {
-      if (!core.matchDetail(seam, name, null) && !pool.includes(name)) pool.push(name);
+      if (name.length >= 3 && !core.matchDetail(seam, name, null) && !pool.includes(name)) pool.push(name);
     }
     if (pool.length >= 12) break;
   }
