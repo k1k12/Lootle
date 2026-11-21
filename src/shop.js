@@ -1,25 +1,61 @@
 /*
- * The shop. Prices and loot values are in thousands of dollars.
+ * The fence. Prices are in thousands of dollars.
  *
- * kind "throw":  junk to hurl at the safe. `luck` is the chance one throw
- *                jams the lock and reveals an answer.
- * kind "time":   adds `seconds` to the current safe.
- * kind "blast":  shows three answers, one of them the rarest in the safe.
+ * Tools are used during a job:
+ *   kind "try"     one more attempt on the current door
+ *   kind "time"    adds `seconds` to the current door
+ *   kind "letter"  gives the first letter of a good answer
+ *   kind "blast"   shows three answers, one of them the rarest going
+ *   kind "key"     opens the door with a decent answer
+ * kind "wear" is clothing for the cat: bought once, kept for good.
+ *
+ * An item with `rare` only turns up some nights. `rare` is the chance it is
+ * in stock on any given job, the same for every player.
  */
 export const ITEMS = {
-  tomato: { name: "Tomato", emoji: "\u{1F345}", price: 1, kind: "throw", luck: 1 / 2000, blurb: "Splat. 1 in 2,000 hits the lock." },
-  egg: { name: "Egg", emoji: "\u{1F95A}", price: 2, kind: "throw", luck: 1 / 1000, blurb: "Messier. 1 in 1,000 hits the lock." },
-  duck: { name: "Rubber duck", emoji: "\u{1F986}", price: 5, kind: "throw", luck: 1 / 400, blurb: "Squeaks on impact. 1 in 400." },
-  hammer: { name: "Hammer", emoji: "\u{1F528}", price: 20, kind: "throw", luck: 1 / 100, blurb: "A proper clang. 1 in 100." },
-  hourglass: { name: "Hourglass", emoji: "⏳", price: 30, kind: "time", seconds: 3, blurb: "Three more seconds on this safe." },
-  dynamite: { name: "Dynamite", emoji: "\u{1F9E8}", price: 300, kind: "blast", blurb: "Blows the door: three answers, one is the rarest." },
+  hairpin: { name: "Hairpin", price: 15, kind: "try", blurb: "One more go when you've run out." },
+  hourglass: { name: "Hourglass", price: 10, kind: "time", seconds: 5, blurb: "Five extra seconds. You'll waste three." },
+  scope: { name: "Stethoscope", price: 25, kind: "letter", blurb: "Listen in. Tells you the first letter." },
+  dynamite: { name: "Dynamite", price: 60, kind: "blast", blurb: "Three answers, one is gold. Not subtle." },
+  key: { name: "Skeleton key", price: 120, kind: "key", rare: 0.35, blurb: "Opens one door. No questions asked." },
+  tux: { name: "Tuxedo coat", price: 250, kind: "wear", slot: "coat", blurb: "Black tie, white bib." },
+  ginger: { name: "Ginger tabby", price: 250, kind: "wear", slot: "coat", blurb: "Loud. Proud. Easy to spot." },
+  siamese: { name: "Siamese", price: 400, kind: "wear", slot: "coat", blurb: "Old money." },
+  cap: { name: "Flat cap", price: 60, kind: "wear", slot: "hat", blurb: "Proper wrong'un." },
+  beret: { name: "Beret", price: 60, kind: "wear", slot: "hat", blurb: "For art jobs." },
+  tophat: { name: "Top hat", price: 150, kind: "wear", slot: "hat", blurb: "Overdressed for crime." },
+  crown: { name: "Crown", price: 1000, kind: "wear", slot: "hat", rare: 0.12, blurb: "For cats with ideas above their station." },
+  bow: { name: "Bow tie", price: 40, kind: "wear", slot: "neck", blurb: "Sharp." },
+  pearls: { name: "Pearls", price: 200, kind: "wear", slot: "neck", blurb: "Borrowed. Sort of." },
+  scarf: { name: "Scarf", price: 40, kind: "wear", slot: "neck", blurb: "It gets cold on roofs." },
 };
 
-export const MAX_BUY = 99;
+/** Tools left over from the first shop. They are cleared when a stash is converted. */
+export const RETIRED_ITEMS = ["tomato", "egg", "duck", "hammer"];
 
-/** What the browser is allowed to know about the shop. */
-export function catalogue() {
+export const MAX_BUY = 20;
+
+function chance(job, id) {
+  let h = 2166136261;
+  const text = job + ":" + id;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return (h >>> 0) / 4294967296;
+}
+
+/** Is this item on the shelf for a given job? Ordinary stock always is. */
+export function inStock(id, job) {
+  const item = ITEMS[id];
+  return !!item && (!item.rare || chance(job, id) < item.rare);
+}
+
+/**
+ * What the browser is allowed to know about the shop on a given job. Rare
+ * items are always listed so people know they exist: `rare` marks them and
+ * `out` says they are not on the shelf tonight.
+ */
+export function catalogue(job) {
   return Object.entries(ITEMS).map(([id, item]) => ({
-    id, name: item.name, emoji: item.emoji, price: item.price, kind: item.kind, blurb: item.blurb,
+    id, name: item.name, price: item.price, kind: item.kind, blurb: item.blurb,
+    slot: item.slot || "", rare: !!item.rare, out: !inStock(id, job),
   }));
 }

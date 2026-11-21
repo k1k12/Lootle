@@ -4,10 +4,10 @@
 
 A daily trivia game with a heist theme. Play it at [lootle.app](https://lootle.app).
 
-Everyone gets the same seven safes each day. Each safe is a question with
-several right answers, and the answer fewer people give is worth more. Say
-"France" for a country bordering Germany and you get loose change. Say
-"Luxembourg" and you get the big score.
+Everyone gets the same ten vault doors each night. Each door is a question
+with a lot of right answers, and the answer fewer people give is worth more.
+Asked to name a country, "France" gets you loose change. "Djibouti" might be
+the perfect crime.
 
 ## Contents
 
@@ -21,25 +21,27 @@ several right answers, and the answer fewer people give is worth more. Say
 
 ## How to play
 
-- You have 30 seconds and three tries on each safe.
-- There are six loot levels, from $10K to $100K. A perfect day is $700K.
-- After a correct answer you can grab the loot or spin again. A rarer second
-  answer swaps your loot up. A more common one, a repeat or a miss trips the
-  alarm and the safe pays nothing.
-- Loot from the daily job goes into your stash. Spend it at the fence on
-  things to throw at the safe (tomatoes, eggs, a rubber duck, a hammer), an
-  hourglass for three extra seconds, or dynamite, which shows three answers
-  where one is the rarest and two are wrong. Thrown items have a small
-  chance of hitting the lock and revealing an answer. A safe opened with
-  help is marked in your shared result.
-- Past jobs are in the archive. Each can be played once for fun. Archive
-  jobs pay nothing into the stash and do not count towards streaks or the
-  rarity numbers.
-- A job is four short general knowledge safes, then two big lists (every
-  country in Africa, all 118 chemical elements), then the vault: one hard,
-  specialist list that is easier with something from the shop.
-- The daily job can be played once. Practice runs deal seven random safes
-  and do not count towards your streak or the rarity numbers.
+- You have 30 seconds and three goes on each door.
+- Every answer scores from 12 to 100 for how rare it is. The score sets the
+  loot: loose change ($1K), a tidy sum ($2K), a rare find ($4K), a big score
+  ($7K) or the perfect crime ($10K, only for a score of 100). A perfect night
+  is $100K.
+- After a right answer you can take the loot or risk it. A rarer second
+  answer trades up. Anything else and the shutters come down on nothing.
+- A job starts easy and gets harder: four broad questions (name a country,
+  name a dog breed), two narrower ones (name an island in the Caribbean),
+  one hard specialist list, then three open prompts (name something you
+  would find in a fridge).
+- Loot from the daily job goes into your stash. The fence sells tools to use
+  mid-job (a hairpin for one more go, an hourglass, a stethoscope that gives
+  a first letter, dynamite that shows three answers of which one is the
+  rarest, and a skeleton key) and clothes for the cat, which do nothing. A
+  couple of items only turn up on some nights. A door opened with help is
+  marked in your shared result.
+- Old jobs can each be played once for fun. They pay nothing and do not
+  count towards streaks or the rarity numbers.
+- The daily job can be played once. Practice deals ten random doors and does
+  not count either.
 
 ## Running it locally
 
@@ -64,17 +66,17 @@ browser rather than loaded from files.
 
 | Path | What is in it |
 | --- | --- |
-| `public/` | The front end: page, styles, dial animation and sound. No answers. |
+| `public/` | The front end. `js/game.js` is the game, `js/art.js` draws everything (the skyline, the vault door, the cat) as SVG. No answers. |
 | `src/worker.js` | The Worker: `/api/*` routes and the per-safe store |
 | `src/core.js` | Spelling correction, rarity maths and the daily schedule |
-| `src/seams/` | The question bank: ordinary packs and vault packs of big lists. Never sent to the browser. |
-| `src/shop.js` | Shop items, prices and odds |
+| `src/seams/` | The question bank, in packs. Never sent to the browser. |
+| `src/shop.js` | Shop items, prices and which rare items are in stock on a given night |
 | `src/lexicon.js` | Names that must not be auto-corrected into an answer |
 | `tests/run.js` | Checks on the bank, matching, rarity and schedule |
 | `wrangler.jsonc` | Cloudflare configuration |
 
-A safe is called a "seam" in the code. The name is left over from an earlier
-mining theme.
+A door is called a "seam" or a "safe" in the code. The names are left over
+from earlier themes (mining, then safes).
 
 ### Answers stay on the server
 
@@ -92,18 +94,20 @@ accepted as "North Korea".
 
 ### Rarity
 
-Every answer starts with a hand-set estimate of how common it is. Each
-player's first answer in the daily job is counted, and the counts are blended
-with the estimate, which carries the weight of 1,000 answers. Until a safe
-has that many real answers the game labels its numbers as expected rather
-than measured.
+Every answer starts with a hand-set estimate of how common it is (tier 1 to
+6 in the pack files). Each player's first answer in the daily job is
+counted, and the counts are blended with the estimate, which carries the
+weight of 1,000 answers. An answer's score is 12 for the one everybody gives,
+rising towards 96 as it gets rarer. About one in forty of the least-said
+answers on each door scores a perfect 100. Until a door has 1,000 real
+answers the results screen says its numbers are mostly an estimate.
 
 ### Storage
 
 Each safe has its own small SQLite database (a Durable Object) holding the
 answer counts and which anonymous player ids have played it. A third store per daily job keeps
-every finisher's total, which is how the results screen can say what share
-of players you beat. A second store per player
+every finisher's total, which is how the results screen can say where you
+placed. A second store per player
 id holds the stash and bought items, so they cannot be edited in the
 browser. Streaks and
 progress are kept in the player's browser. There are no accounts and no
@@ -124,23 +128,31 @@ To report a security problem, see [SECURITY.md](SECURITY.md).
    exporting `PACK` in the same format as the existing ones. Each answer is
    `[name, tier, ...other accepted spellings]`, where tier 1 is the answer
    most people give and tier 6 is the one almost nobody does.
-2. Import it in `src/seams/index.js` and add it to the end of `PACKS`.
-3. Run `npm test`. It checks that every safe has at least three answers, a
+2. Import it in `src/seams/index.js` and add it to the end of the right
+   shelf (see below), and to `SEAMS`.
+3. Run `npm test`. It checks that every door has at least three answers, a
    tier 1 and a tier 6, and that no spelling points at two different answers.
 
-There are three kinds of pack, all in the same format:
+Packs sit on four shelves in `src/seams/index.js`, and a ten-door job takes
+from each in order:
 
-| File | Kind | Listed in |
+| Shelf | Doors | What goes on it |
 | --- | --- | --- |
-| `pack-NN.js` | Short general knowledge lists | `PACKS` |
-| `vault-NN.js` | Big lists, roughly 30 to 200 answers | `VAULTS` |
-| `hard-NN.js` | Hard, specialist lists | `HARD` |
+| `EASY` | 1 to 4 | Broad questions with 100 or more answers (`easy-NN.js`) |
+| `MID` | 5 and 6 | Narrower lists (`pack-NN.js`, `vault-NN.js`, `mid-NN.js`) |
+| `HARD` | 7 | Specialist lists (`hard-NN.js`) |
+| `OPEN` | 8 to 10 | Prompts with no fixed list (`open-NN.js`) |
+
+The open prompts are still checked against a list for now, so a sensible
+answer nobody thought of is marked wrong. Those lists are meant to grow.
 
 To stop a safe being dealt without breaking old jobs in the archive, add its
 id to `RETIRED` in `src/seams/index.js` rather than deleting it.
 
 Always add packs at the end. The schedule deals each pack in order, so
-appending a pack never changes which safes earlier days had.
+appending a pack never changes which doors earlier days had. Jobs before
+number 11 had seven safes and are still dealt the old way, so the archive
+plays as it did.
 
 ## Deploying
 
@@ -159,7 +171,7 @@ Releases go through a pull request from `dev` into `main`, as described in
   for a casual game, but it would need bot protection before adding prizes
   or a public leaderboard.
 - Cloudflare's free plan allows about 100,000 storage requests a day, which
-  is roughly 4,000 full games. Past that the game carries on using the
+  is roughly 2,500 full games. Past that the game carries on using the
   estimates until the quota resets at midnight UTC.
 
 ## Contributing

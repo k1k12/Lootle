@@ -1,9 +1,9 @@
 // Run with: node tests/run.js
 import assert from "node:assert/strict";
 import * as core from "../src/core.js";
-import { PACKS, VAULTS, HARD, SHORT, RETIRED, SEAMS as bank } from "../src/seams/index.js";
+import { PACKS, VAULTS, HARD, SHORT, RETIRED, EASY, MID, OPEN, SEAMS as bank } from "../src/seams/index.js";
 import { DECOYS } from "../src/lexicon.js";
-import { ITEMS, MAX_BUY, catalogue } from "../src/shop.js";
+import { ITEMS, MAX_BUY, RETIRED_ITEMS, catalogue, inStock } from "../src/shop.js";
 
 const lexicon = core.buildLexicon(bank, DECOYS);
 
@@ -42,11 +42,11 @@ for (const s of bank) {
 
 // --- Matching -------------------------------------------------------------
 const m = (id, text) => core.matchAnswer(seam(id), text, lexicon);
-const tierOf = (id, text) => core.rarity(seam(id)).rows.find((r) => r.name === m(id, text)).tier;
 ok(m("germany-borders", "  the NETHERLANDS ") === "Netherlands", "case/article/space");
 ok(m("germany-borders", "Luxemburg") === "Luxembourg", "one-letter typo");
 ok(m("germany-borders", "Czech Republic") === "Czechia", "alias");
-ok(tierOf("equator", "Sao Tome and Principe") === 6, "diacritics");
+ok(m("equator", "Sao Tome and Principe") !== null, "diacritics");
+ok(m("fruits", "an apple") === "Apple" && m("in-a-toolbox", "a hammer") === "Hammer", "a leading a or an is ignored");
 ok(m("brazil-borders", "French Guiana") === "France", "alias to France");
 ok(m("four-letter-countries", "Irap") === null, "no typos on short answers");
 ok(m("danube", "Australia") === null, "Australia is not Austria");
@@ -54,7 +54,7 @@ ok(m("landlocked-africa", "Nigeria") === null, "Nigeria is not Niger");
 ok(m("logic-gates", "nand") === "NAND", "NAND exact");
 ok(m("logic-gates", "and") === "AND", "AND exact");
 ok(m("henry-wives", "Catherine") === null, "ambiguous first name rejected");
-ok(tierOf("henry-wives", "Katherine Parr") === 6, "spelling variant");
+ok(m("henry-wives", "Katherine Parr") !== null, "spelling variant");
 ok(m("china-borders", "Kyrgistan") === "Kyrgyzstan", "two typos on long name");
 ok(m("germany-borders", "") === null, "empty input");
 ok(m("germany-borders", "Spain") === null, "wrong answer");
@@ -180,42 +180,90 @@ const firstPass = PACKS.reduce((sum, pack) => sum + Math.floor(pack.length / 7),
 ok(core.utcDigNumber(Date.UTC(2026, 10, 12, 9)) === 1, "launch day is dig #1");
 ok(core.utcDigNumber(Date.UTC(2026, 10, 13, 0, 0, 1)) === 2, "next day is dig #2");
 
+{
+  // Ten doors: four easy lists, two harder ones, one hard list, three open prompts.
+  const pools = { packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD, easy: EASY, mid: MID, open: OPEN };
+  const old = { packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD };
+  const kind = (s) => (EASY.flat().includes(s) ? "easy" : OPEN.flat().includes(s) ? "open" : HARD.flat().includes(s) ? "hard" : MID.flat().includes(s) ? "mid" : "?");
+  for (let d = 1; d < core.V2_FROM; d++) {
+    ok(core.jobDoors(pools, d).map((s) => s.id).join() === core.jobSafes(old, d).map((s) => s.id).join(), "jobs before ten doors are unchanged");
+  }
+  const everywhere = [...EASY.flat(), ...MID.flat(), ...OPEN.flat(), ...HARD.flat()];
+  ok(new Set(everywhere).size === everywhere.length, "no list sits on two shelves");
+  ok(MID.flat().every((s) => !RETIRED.has(s.id)), "retired safes are not on the middle shelf");
+  for (const s of EASY.flat()) ok(s.answers.length >= 50, `${s.id}: an easy door has a long list`);
+  for (const s of OPEN.flat()) ok(s.answers.length >= 60, `${s.id}: an open prompt has plenty of answers`);
+  const lastSeen = new Map();
+  for (let d = core.V2_FROM; d < core.V2_FROM + 120; d++) {
+    const job = core.jobDoors(pools, d);
+    ok(job.length === 10 && new Set(job.map((s) => s.id)).size === 10, "ten different doors");
+    ok(job.map(kind).join() === "easy,easy,easy,easy,mid,mid,hard,open,open,open", "easy first, open prompts last");
+    for (const s of job) {
+      if (lastSeen.has(s.id)) ok(d - lastSeen.get(s.id) >= 3, `${s.id} does not come back within three days`);
+      lastSeen.set(s.id, d);
+    }
+  }
+  const stub = (id) => ({ id, cat: "Test", prompt: "z.", answers: [["a", 1], ["b", 6]] });
+  const grown = { ...pools, easy: [...EASY, [stub("ze")]], mid: [...MID, [stub("zm")]], hard: [...HARD, [stub("zh")]], open: [...OPEN, [stub("zo")]] };
+  const same = Array.from({ length: 5 }, (_, i) => core.jobDoors(grown, core.V2_FROM + i).map((s) => s.id).join() === core.jobDoors(pools, core.V2_FROM + i).map((s) => s.id).join());
+  ok(same.every(Boolean), "adding packs keeps the first days of ten doors unchanged");
+  const practice = core.randomDoors(pools);
+  ok(practice.length === 10 && new Set(practice).size === 10, "practice deals ten different doors");
+}
+
 // --- Rarity ---------------------------------------------------------------
+const SEED_LEVEL = [0, 1, 2, 3, 3, 4, 4];
 for (const s of bank) {
-  // With no real answers, the blended tiers must equal the hand-set ones.
+  // With no real answers, the loot level follows the hand-set tier.
   const { real, rows } = core.rarity(s);
   ok(real === 0, "no real plays yet");
+  const perfect = rows.filter((r) => r.score === 100);
+  ok(perfect.length >= 1 && perfect.length <= Math.max(1, Math.floor(rows.length / 40)), `${s.id}: a few perfect answers, never many`);
+  ok(rows[0].score === 100, `${s.id}: the rarest answer comes first`);
   for (const [name, tier] of s.answers) {
-    ok(rows.find((r) => r.name === name).tier === tier, `${s.id}/${name}: seed tier drifted`);
+    const row = rows.find((r) => r.name === name);
+    ok(row.score >= 12 && row.score <= 100 && row.tier === core.levelOf(row.score), `${s.id}/${name}: score and level agree`);
+    if (row.score < 100) ok(row.tier === SEED_LEVEL[tier], `${s.id}/${name}: level drifted from its seed`);
+    else ok(tier === 6, `${s.id}/${name}: only the rarest answers can be perfect`);
   }
   const total = rows.reduce((sum, r) => sum + r.share, 0);
   ok(Math.abs(total - 1) < 1e-9, `${s.id}: shares sum to 1`);
+  ok(JSON.stringify(core.rarity(s).rows) === JSON.stringify(rows), `${s.id}: scores are stable between calls`);
 }
 {
   // Real data overrides the seed: if everyone says Luxembourg it stops being rare.
   const g = seam("germany-borders");
   const flipped = core.rarity(g, { Luxembourg: 20000, France: 3 }).rows;
-  ok(flipped.find((r) => r.name === "Luxembourg").tier === 1, "popular answer becomes Quartz");
-  ok(flipped.find((r) => r.name === "France").tier === 6, "unpopular answer becomes Diamond");
+  ok(flipped.find((r) => r.name === "Luxembourg").tier === 1, "a popular answer becomes loose change");
+  ok(flipped.find((r) => r.name === "France").tier >= 4, "an unpopular answer becomes a big score");
   ok(core.rarity(g, { NotAnAnswer: 99 }).real === 0, "unknown keys are ignored");
-  // A few early answers must not knock a Diamond down.
-  ok(core.rarity(g, { Luxembourg: 2 }).rows.find((r) => r.name === "Luxembourg").tier === 6, "early answers do not flip a gem");
+  ok(core.rarity(g, { Luxembourg: 2 }).rows.find((r) => r.name === "Luxembourg").tier >= 4, "a few early answers do not cheapen a rare one");
+  ok([0, 12, 26, 53, 71, 100].map(core.levelOf).join() === "0,1,2,3,4,5" && core.levelOf(99) === 4, "level cut-offs");
 }
 
 {
-  // The shop: loot values line up with the tiers, and nothing is free or a sure thing.
-  ok(core.TIER_K.length === 7 && core.TIER_K[0] === 0, "one payout per tier, nothing for a bust");
-  for (let t = 1; t < 7; t++) ok(core.TIER_K[t] > core.TIER_K[t - 1], `tier ${t} pays more than tier ${t - 1}`);
+  // The shop.
+  ok(core.TIER_K.length === 6 && core.TIER_K[0] === 0 && core.TIER_NAMES.length === 6, "one payout per level, nothing for a bust");
+  for (let t = 1; t < 6; t++) ok(core.TIER_K[t] > core.TIER_K[t - 1], `level ${t} pays more than level ${t - 1}`);
+  ok(core.TIER_K[5] * 10 === 100, "a perfect night is $100K");
   for (const [id, item] of Object.entries(ITEMS)) {
     ok(Number.isInteger(item.price) && item.price > 0, `${id} has a whole, positive price`);
-    ok(["throw", "time", "blast"].includes(item.kind), `${id} has a known kind`);
-    if (item.kind === "throw") ok(item.luck > 0 && item.luck <= 0.01, `${id} is a long shot`);
+    ok(["try", "time", "letter", "blast", "key", "wear"].includes(item.kind), `${id} has a known kind`);
+    if (item.kind === "wear") ok(["coat", "hat", "neck"].includes(item.slot), `${id} is worn somewhere`);
     if (item.kind === "time") ok(item.seconds >= 1 && item.seconds <= 5, `${id} adds a few seconds`);
+    ok(!RETIRED_ITEMS.includes(id), `${id} is not also retired`);
   }
-  const perfectDay = 7 * core.TIER_K[6];
-  ok(ITEMS.dynamite.price > core.TIER_K[6], "dynamite costs more than the best safe pays");
-  ok(ITEMS.dynamite.price <= perfectDay, "a perfect day can afford dynamite");
-  ok(catalogue().length === Object.keys(ITEMS).length && catalogue().every((i) => !("luck" in i)), "the catalogue lists everything without the odds table");
+  ok(ITEMS.hourglass.price >= core.TIER_K[5], "even the cheapest tool costs a perfect door");
+  ok(ITEMS.crown.price >= 10 * core.TIER_K[5] * 5, "the crown takes many good nights");
+  const shelf = catalogue(20);
+  ok(shelf.length === Object.keys(ITEMS).length && shelf.every((i) => typeof i.out === "boolean" && typeof i.rare === "boolean"), "the catalogue lists everything without the odds");
+  const nights = Array.from({ length: 400 }, (_, n) => n + 1);
+  for (const [id, item] of Object.entries(ITEMS)) {
+    const seen = nights.filter((n) => inStock(id, n)).length;
+    if (item.rare) ok(seen > 0 && seen < 400 && Math.abs(seen / 400 - item.rare) < 0.1, `${id} turns up about as often as it should`);
+    else ok(seen === 400, `${id} is always in stock`);
+    ok(inStock(id, 33) === inStock(id, 33), `${id}: stock is the same for everyone on a night`);
+  }
   ok(MAX_BUY >= 10, "handfuls of ten can be bought");
 }
 
