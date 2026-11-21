@@ -2,9 +2,14 @@
  * Lootle core: answer matching, rarity and daily seam selection.
  * Pure functions, shared by the Worker and the tests.
  */
-export const TIER_NAMES = [null, "Loose change", "Cash", "Gold bar", "Painting", "Crown jewels", "The big score"];
-// What each loot tier pays, in thousands of dollars. Tier 0 is an empty safe.
-export const TIER_K = [0, 10, 20, 35, 50, 70, 100];
+// The five loot levels. An answer's level comes from its rarity score (see rarity()).
+export const TIER_NAMES = [null, "Loose change", "Tidy sum", "Rare find", "Big score", "The Perfect Crime"];
+// What each level pays, in thousands of dollars. Level 0 is a door that paid nothing.
+export const TIER_K = [0, 1, 2, 4, 7, 10];
+/** Which loot level a rarity score (12 to 100) earns. */
+export function levelOf(score) {
+  return score >= 100 ? 5 : score >= 71 ? 4 : score >= 53 ? 3 : score >= 26 ? 2 : score > 0 ? 1 : 0;
+}
 export const SEAMS_PER_DIG = 7;
 export const EPOCH = Date.UTC(2026, 10, 12); // Dig #1
 
@@ -17,7 +22,8 @@ export function normalise(text) {
     .replace(/[^a-z0-9 ]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/^the /, "");
+    .replace(/^the /, "")
+    .replace(/^an? (?=.{3})/, "");
 }
 
 /**
@@ -135,16 +141,20 @@ export function rarity(seam, counts = {}) {
     return { name, share };
   });
   const top = Math.max(...rows.map((r) => r.share));
+  const least = Math.min(...rows.map((r) => r.share));
   for (const row of rows) {
-    const rel = row.share / top;
-    let tier = 6;
-    for (let i = 0; i < TIER_CUTOFFS.length; i++) {
-      if (rel > TIER_CUTOFFS[i]) { tier = i + 1; break; }
-    }
-    row.tier = tier;
+    // 12 for the answer everyone gives, climbing towards 96 as it gets rarer.
+    row.score = Math.min(96, Math.round(12 + 84 * (1 - Math.sqrt(row.share / top))));
     row.pct = Math.round(row.share * 1000) / 10;
   }
-  rows.sort((a, b) => a.share - b.share);
+  // The perfect 100 goes to a few of the least-said answers: about one in
+  // forty, picked by a fixed shuffle so it does not change between requests.
+  // Once people find one, its count rises and the 100 moves to another.
+  const rarest = rows.filter((r) => r.share <= least * 1.000001 && r.share < top);
+  rarest.sort((x, y) => hash(seam.id + x.name) - hash(seam.id + y.name));
+  for (const row of rarest.slice(0, Math.max(1, Math.floor(rows.length / 40)))) row.score = 100;
+  for (const row of rows) row.tier = levelOf(row.score);
+  rows.sort((a, b) => b.score - a.score || a.share - b.share);
   return { real, rows };
 }
 
@@ -170,6 +180,12 @@ function shuffled(list, rand) {
 }
 
 /** Dig number for a moment in time, by UTC calendar day (1 on launch day). */
+function hash(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
 export function utcDigNumber(now = Date.now()) {
   return Math.floor((now - EPOCH) / 86400000) + 1;
 }
@@ -272,7 +288,9 @@ const lateCache = new WeakMap();
  * that, every round reshuffles the whole pool.
  */
 function fromPool(packs, seed, g, late, launched) {
-  let rounds = poolCache.get(packs);
+  let bySeed = poolCache.get(packs);
+  if (!bySeed) poolCache.set(packs, (bySeed = new Map()));
+  let rounds = bySeed.get(seed);
   if (!rounds) {
     const orders = packs.map((pack, i) => shuffled(pack, mulberry32(seed + i)));
     // Among the packs that existed when the mix began, safes used in the
@@ -281,7 +299,7 @@ function fromPool(packs, seed, g, late, launched) {
     const old = orders.slice(0, launched).flat();
     const first = [...old.filter((s) => !late.has(s.id)), ...old.filter((s) => late.has(s.id)), ...orders.slice(launched).flat()];
     rounds = [first];
-    poolCache.set(packs, rounds);
+    bySeed.set(seed, rounds);
   }
   const total = rounds[0].length;
   const round = Math.floor(g / total);
@@ -318,6 +336,42 @@ export function jobSafes(pools, number) {
   take(pools.vaults, 0xb16b00, MIX.big, MIX_PACKS.big);
   take(pools.hard, 0x4a2d00, MIX.hard, MIX_PACKS.hard);
   return out;
+}
+
+/**
+ * From this job on, a job is ten doors: four easy big lists, two harder
+ * lists, one hard specialist list, then three open prompts. Earlier jobs
+ * stay as they were for the archive.
+ */
+export const V2_FROM = 11;
+export const DOORS = { easy: 4, mid: 2, hard: 1, open: 3 };
+/** How many packs of each kind existed when ten doors began. Never change these. */
+const V2_PACKS = { easy: 1, mid: 8, hard: 1, open: 1 };
+const NONE = new Set();
+
+/** The doors of a job. `pools` also carries { easy, mid, open } for ten-door jobs. */
+export function jobDoors(pools, number) {
+  if (number < V2_FROM || !pools.open || !pools.open.flat().length) return jobSafes(pools, number);
+  const day = number - V2_FROM;
+  const out = [];
+  const take = (packs, seed, perDay, launched) => {
+    for (let k = 0, skip = 0; k < perDay && skip < 50; ) {
+      const safe = fromPool(packs, seed, day * perDay + k + skip, NONE, launched);
+      if (out.some((s) => s.id === safe.id)) skip++;
+      else { out.push(safe); k++; }
+    }
+  };
+  take(pools.easy, 0xea5e00, DOORS.easy, V2_PACKS.easy);
+  take(pools.mid, 0x31d000, DOORS.mid, V2_PACKS.mid);
+  take(pools.hard, 0x4a2d77, DOORS.hard, V2_PACKS.hard);
+  take(pools.open, 0x09e400, DOORS.open, V2_PACKS.open);
+  return out;
+}
+
+/** A practice run: ten random doors in the same easy-to-open order. */
+export function randomDoors(pools) {
+  const pick = (packs, n) => shuffled(packs.flat(), Math.random).slice(0, n);
+  return [...pick(pools.easy, DOORS.easy), ...pick(pools.mid, DOORS.mid), ...pick(pools.hard, DOORS.hard), ...pick(pools.open, DOORS.open)];
 }
 
 export function randomSeams(bank) {
