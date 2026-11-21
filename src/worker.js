@@ -6,7 +6,7 @@
  * browser never receives an answer it has not earned. The server also keeps
  * the score: it decides what each safe paid and credits the player's stash.
  *
- *   GET  /api/job?n=12        today's seven prompts (or ?free=1 for a random set)
+ *   GET  /api/job?n=12        a job's prompts (or ?free=1 for a random set)
  *   POST /api/answer          check a guess, record it, return its loot and rarity
  *   POST /api/risk            declare a second spin on a safe
  *   POST /api/bank            lock in a safe (also used when a safe is lost)
@@ -18,9 +18,9 @@
  *   GET  /api/health          liveness check for uptime monitors
  */
 import { DurableObject } from "cloudflare:workers";
-import { PACKS, VAULTS, HARD, SHORT, RETIRED, SEAMS } from "./seams/index.js";
+import { PACKS, VAULTS, HARD, SHORT, RETIRED, SEAMS, EASY, MID, OPEN } from "./seams/index.js";
 import { DECOYS } from "./lexicon.js";
-import { ITEMS, MAX_BUY, catalogue } from "./shop.js";
+import { ITEMS, MAX_BUY, RETIRED_ITEMS, catalogue, inStock } from "./shop.js";
 import * as core from "./core.js";
 
 const BY_ID = new Map(SEAMS.map((s) => [s.id, s]));
@@ -95,7 +95,7 @@ export class SeamStore extends DurableObject {
     if (before.state === "new") {
       this.sql.exec(
         "INSERT INTO plays (pid, n, done, answered, held) VALUES (?, ?, 0, 1, ?) ON CONFLICT (pid, n) DO UPDATE SET answered = 1, held = excluded.held",
-        pid, n, mine.tier
+        pid, n, mine.score
       );
       if (counted && !before.assisted) {
         this.sql.exec(
@@ -162,6 +162,13 @@ export class PlayerStore extends DurableObject {
     this.sql.exec("INSERT OR IGNORE INTO wallet (id, balance) VALUES (1, 0)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS items (item TEXT PRIMARY KEY, qty INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS credits (n INTEGER NOT NULL, seam TEXT NOT NULL, amount INTEGER NOT NULL, PRIMARY KEY (n, seam))");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL)");
+    // Doors pay a tenth of what they used to, so stashes built up under the
+    // old prices are scaled down once, and the old throwable junk is cleared.
+    if (this.sql.exec("INSERT OR IGNORE INTO meta (k, v) VALUES ('economy', 2)").rowsWritten > 0) {
+      this.sql.exec("UPDATE wallet SET balance = balance / 10 WHERE id = 1");
+      for (const id of RETIRED_ITEMS) this.sql.exec("DELETE FROM items WHERE item = ?", id);
+    }
   }
 
   state() {
@@ -178,8 +185,10 @@ export class PlayerStore extends DurableObject {
     return { paid: fresh ? amount : 0, ...this.state() };
   }
 
-  buy(item, price, qty) {
+  buy(item, price, qty, max = 0) {
     const cost = price * qty;
+    const have = this.sql.exec("SELECT qty FROM items WHERE item = ?", item).toArray()[0];
+    if (max && have && have.qty >= max) return { ok: false, owned: true, ...this.state() };
     if (this.state().balance < cost) return { ok: false, ...this.state() };
     this.sql.exec("UPDATE wallet SET balance = balance - ? WHERE id = 1", cost);
     this.sql.exec("INSERT INTO items (item, qty) VALUES (?, ?) ON CONFLICT (item) DO UPDATE SET qty = qty + excluded.qty", item, qty);
@@ -229,14 +238,16 @@ function playable(n) {
   return Number.isInteger(n) && n >= 1 && n <= core.utcDigNumber() + 1;
 }
 
-const POOLS = { packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD };
+const POOLS = { packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD, easy: EASY, mid: MID, open: OPEN };
+const BAND = new Map();
+for (const [band, packs] of [["easy", EASY], ["mid", MID], ["hard", HARD], ["open", OPEN]]) for (const s of packs.flat()) BAND.set(s.id, band);
 const IN_PLAY = SEAMS.filter((s) => !RETIRED.has(s.id));
 const VAULT_IDS = new Set(VAULTS.flat().map((s) => s.id));
 const HARD_IDS = new Set(HARD.flat().map((s) => s.id));
 
 /** What the browser may know about a safe. Big lists say how long they are; hard safes say so. */
 function publicSeam(seam) {
-  const out = { id: seam.id, cat: seam.cat, prompt: seam.prompt };
+  const out = { id: seam.id, cat: seam.cat, prompt: seam.prompt, band: BAND.get(seam.id) || "mid" };
   if (VAULT_IDS.has(seam.id)) out.size = seam.answers.length;
   if (HARD_IDS.has(seam.id)) out.hard = true;
   return out;
@@ -245,13 +256,13 @@ function publicSeam(seam) {
 async function handleJob(url, env) {
   if (url.searchParams.get("free")) {
     const pid = url.searchParams.get("pid") || "";
-    const seams = core.randomSeams(IN_PLAY);
+    const seams = core.randomDoors(POOLS);
     if (PID.test(pid)) await orElse(Promise.all(seams.map((s) => store(env, s.id).reopen(pid))), null);
     return json({ number: 0, seams: seams.map(publicSeam) });
   }
   const n = Number(url.searchParams.get("n"));
   if (!playable(n)) return bad("That job is not open.", 404);
-  const seams = core.jobSafes(POOLS, n);
+  const seams = core.jobDoors(POOLS, n);
   const out = { number: n, seams: seams.map(publicSeam) };
   // For an archive job, say whether this player has already been through it.
   const pid = url.searchParams.get("pid") || "";
@@ -302,16 +313,16 @@ function parsePlay(body) {
   if (!PID.test(pid)) return bad("Bad player id.");
   if (n !== 0) {
     if (!playable(n)) return bad("That job is not open.", 404);
-    if (!core.jobSafes(POOLS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
+    if (!core.jobDoors(POOLS, n).some((s) => s.id === seam.id)) return bad("Safe is not in that job.");
   }
   // Live means it pays and counts: today's job, not practice, not the archive.
   return { seam, pid, n, live: validDaily(n) && body.archive !== true };
 }
 
 /** Pay a safe into the stash. Practice runs and archive jobs never pay. */
-async function payOut(env, live, pid, n, seamId, tier) {
+async function payOut(env, live, pid, n, seamId, score) {
   if (!live) return { paid: 0 };
-  return orElse(player(env, pid).credit(n, seamId, core.TIER_K[tier] || 0), { paid: 0 });
+  return orElse(player(env, pid).credit(n, seamId, core.TIER_K[core.levelOf(score)] || 0), { paid: 0 });
 }
 
 async function handleAnswer(request, env) {
@@ -336,10 +347,10 @@ async function handleAnswer(request, env) {
     }
     const { real, rows } = await orElse(db.rarityNow(seam.id), core.rarity(seam, {}));
     const mine = rows.find((r) => r.name === name);
-    const won = mine.tier > before.held;
-    const bank = await payOut(env, live, pid, n, seam.id, won ? mine.tier : 0);
+    const won = mine.score > before.held;
+    const bank = await payOut(env, live, pid, n, seam.id, won ? mine.score : 0);
     return json({
-      ok: true, won, name, corrected: match.corrected, tier: mine.tier, pct: mine.pct,
+      ok: true, won, name, corrected: match.corrected, tier: mine.tier, score: mine.score, pct: mine.pct,
       real, measured: real >= core.PRIOR_PLAYS, deeper: 0, balance: bank.balance,
     });
   }
@@ -356,10 +367,11 @@ async function handleAnswer(request, env) {
     name,
     corrected: match.corrected,
     tier: mine.tier,
+    score: mine.score,
     pct: mine.pct,
     real: result.real,
     measured: result.real >= core.PRIOR_PLAYS,
-    deeper: result.rows.filter((r) => r.tier > mine.tier).length,
+    deeper: result.rows.filter((r) => r.score > mine.score).length,
     assisted: result.assisted,
   });
 }
@@ -378,8 +390,8 @@ async function handleBank(request, env) {
   const { seam, pid, n, live } = play;
   const before = await orElse(store(env, seam.id).finish(pid, n), { state: "done", held: 0, risking: false });
   // Banking pays the held loot, unless they had already chosen to risk it.
-  const tier = before.state === "open" && !before.risking ? before.held : 0;
-  const bank = before.state === "done" ? {} : await payOut(env, live, pid, n, seam.id, tier);
+  const score = before.state === "open" && !before.risking ? before.held : 0;
+  const bank = before.state === "done" ? {} : await payOut(env, live, pid, n, seam.id, score);
   return json({ ok: true, paid: bank.paid || 0, balance: bank.balance });
 }
 
@@ -395,7 +407,7 @@ async function handleReveal(url, env) {
     real,
     measured: real >= core.PRIOR_PLAYS,
     note: seam.note || "",
-    answers: rows.map((r) => ({ name: r.name, tier: r.tier, pct: r.pct })),
+    answers: rows.map((r) => ({ name: r.name, tier: r.tier, score: r.score, pct: r.pct })),
   });
 }
 
@@ -405,7 +417,8 @@ async function handleMe(url, env) {
   const pid = url.searchParams.get("pid") || "";
   if (!PID.test(pid)) return bad("Bad player id.");
   const state = await orElse(player(env, pid).state(), { balance: 0, items: {} });
-  return json({ ...state, shop: catalogue() });
+  const job = core.utcDigNumber();
+  return json({ ...state, job, shop: catalogue(job) });
 }
 
 async function handleBuy(request, env) {
@@ -417,7 +430,10 @@ async function handleBuy(request, env) {
   if (!PID.test(pid)) return bad("Bad player id.");
   if (!item) return bad("No such item.");
   if (!Number.isInteger(qty) || qty < 1 || qty > MAX_BUY) return bad("Bad quantity.");
-  const result = await player(env, pid).buy(String(body.item), item.price, qty);
+  if (!inStock(String(body.item), core.utcDigNumber())) return bad("That is not on the shelf tonight.", 409);
+  // Clothes are bought once. Tools stack.
+  const result = await player(env, pid).buy(String(body.item), item.price, item.kind === "wear" ? 1 : qty, item.kind === "wear" ? 1 : 0);
+  if (!result.ok && result.owned) return json({ error: "You already have that.", balance: result.balance, items: result.items }, 409);
   if (!result.ok) return json({ error: "Not enough in the stash.", balance: result.balance, items: result.items }, 402);
   return json(result);
 }
@@ -431,7 +447,8 @@ const wordsOf = (text) => new Set(core.normalise(text).split(" ").filter((w) => 
  */
 function decoys(seam) {
   const mine = wordsOf(seam.prompt);
-  const ranked = SEAMS.filter((other) => other.id !== seam.id)
+  // Retired safes are left out: several have one-letter answers ("A", "B").
+  const ranked = IN_PLAY.filter((other) => other.id !== seam.id)
     .map((other) => {
       let score = other.cat === seam.cat ? 2 : 0;
       for (const w of wordsOf(other.prompt)) if (mine.has(w)) score++;
@@ -441,7 +458,7 @@ function decoys(seam) {
   const pool = [];
   for (const { other } of ranked) {
     for (const [name] of other.answers) {
-      if (!core.matchDetail(seam, name, null) && !pool.includes(name)) pool.push(name);
+      if (name.length >= 3 && !core.matchDetail(seam, name, null) && !pool.includes(name)) pool.push(name);
     }
     if (pool.length >= 12) break;
   }
@@ -463,24 +480,24 @@ async function handleUse(request, env) {
 
   const db = store(env, seam.id);
   if ((await db.row(pid, n)).state !== "new") return bad("Too late for that on this safe.", 409);
-  // Junk can be thrown by the handful; everything else is used one at a time.
-  const wanted = Number(body.qty || 1);
-  const qty = item.kind === "throw" && Number.isInteger(wanted) && wanted >= 1 && wanted <= MAX_BUY ? wanted : 1;
-  const bag = await player(env, pid).use(id, qty);
-  if (!bag.ok) return json({ error: "You do not have enough of those.", items: bag.items }, 402);
+  if (item.kind === "wear") return bad("That is for wearing.");
+  const bag = await player(env, pid).use(id, 1);
+  if (!bag.ok) return json({ error: "You do not have one of those.", items: bag.items }, 402);
 
-  const out = { ok: true, item: id, kind: item.kind, qty, items: bag.items, balance: bag.balance };
+  const out = { ok: true, item: id, kind: item.kind, items: bag.items, balance: bag.balance };
   if (item.kind === "time") {
     out.seconds = item.seconds;
-  } else if (item.kind === "throw") {
-    out.hit = Math.random() < 1 - Math.pow(1 - item.luck, qty);
-    if (out.hit && (await db.assist(pid, n))) {
-      // A lucky hit shows a middling answer, not the best one.
-      const { rows } = await db.rarityNow(seam.id);
-      const middling = rows.filter((r) => r.tier >= 2 && r.tier <= 4);
-      const pool = middling.length ? middling : rows;
-      out.hint = pool[Math.floor(Math.random() * pool.length)].name;
-    }
+  } else if (item.kind === "try") {
+    out.tries = 1;
+  } else if (item.kind === "letter" || item.kind === "key") {
+    await db.assist(pid, n);
+    // A decent answer, not the best one: something in the "rare find" range.
+    const { rows } = await db.rarityNow(seam.id);
+    const decent = rows.filter((r) => r.tier === 3);
+    const pool = decent.length ? decent : rows;
+    const pickOne = pool[Math.floor(Math.random() * pool.length)].name;
+    if (item.kind === "letter") out.letter = pickOne[0].toUpperCase();
+    else out.answer = pickOne;
   } else if (item.kind === "blast") {
     await db.assist(pid, n);
     const { rows } = await db.rarityNow(seam.id);
@@ -527,7 +544,7 @@ async function handleFinish(request, env) {
   if (await overLimit(env.LIMIT_ANSWER, pid)) return tooMany();
   const done = await orElse(player(env, pid).takeFor(n), { safes: 0, take: 0 });
   // Every safe has to be settled first, or people could rank half a job.
-  if (done.safes < core.SEAMS_PER_DIG) return json({ ok: false });
+  if (done.safes < core.jobDoors(POOLS, n).length) return json({ ok: false });
   const rank = await orElse(env.JOB.get(env.JOB.idFromName("job-" + n)).submit(pid, done.take), null);
   if (!rank) return json({ ok: false });
   const others = rank.players - 1;

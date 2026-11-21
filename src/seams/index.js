@@ -12,6 +12,11 @@ import { PACK as vault01 } from "./vault-01.js";
 import { PACK as vault02 } from "./vault-02.js";
 import { PACK as vault03 } from "./vault-03.js";
 import { PACK as hard01 } from "./hard-01.js";
+import { PACK as easy01 } from "./easy-01.js";
+import { PACK as easy02 } from "./easy-02.js";
+import { PACK as mid01 } from "./mid-01.js";
+import { PACK as open01 } from "./open-01.js";
+import { PACK as open02 } from "./open-02.js";
 
 export const PACKS = [pack01, pack02, pack03, pack04];
 
@@ -48,4 +53,19 @@ export const RETIRED = new Set([
 /* The short general knowledge safes still in play, pack by pack. */
 export const SHORT = PACKS.map((pack) => pack.filter((s) => !RETIRED.has(s.id)));
 
-export const SEAMS = [...PACKS.flat(), ...VAULTS.flat(), ...HARD.flat()];
+/*
+ * Ten-door jobs draw from four shelves. New packs go on the END of each.
+ *
+ * EASY: questions anyone can start on (name a country, name a dog breed).
+ * A handful of the broadest vault lists were moved here.
+ */
+const TO_EASY = new Set(["all-countries", "capital-cities", "elements", "us-states", "currencies"]);
+export const EASY = [[...VAULTS.flat().filter((s) => TO_EASY.has(s.id)), ...easy01, ...easy02]];
+
+/* MID: the short general knowledge safes, the rest of the vault lists, and the narrower new ones. */
+export const MID = [...SHORT, ...VAULTS.map((pack) => pack.filter((s) => !TO_EASY.has(s.id))), mid01];
+
+/* OPEN: prompts with no fixed list ("name something in a fridge"). */
+export const OPEN = [[...open01, ...open02]];
+
+export const SEAMS = [...PACKS.flat(), ...VAULTS.flat(), ...HARD.flat(), easy01, easy02, mid01, open01, open02].flat();
