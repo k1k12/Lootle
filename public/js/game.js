@@ -471,7 +471,7 @@
     if (hit.suggest) {
       // Close to a real answer: offer it, and let them take it or type something else. No try is spent.
       const offer = $("suggest");
-      offer.innerHTML = `did you mean <b>${esc(hit.suggest)}</b>? tap to use it`;
+      offer.innerHTML = `Did you mean <b>${esc(hit.suggest)}</b>?`;
       offer.dataset.name = hit.suggest;
       offer.hidden = false;
       $("miss").textContent = "";
