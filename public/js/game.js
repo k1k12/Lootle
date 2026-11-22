@@ -67,7 +67,6 @@
       breakfast: "most important answer of the day.", "things-that-fly": "you're flying.", "round-things": "well rounded.",
       "things-you-lose": "you'd lose your own tail.", "reasons-to-be-late": "i've used that one.", "at-a-wedding": "i do.",
     },
-    judged: ["wasn't on my list. i'll allow it.", "new one on me. sold.", "never heard that before. love it."],
     bust: ["better luck next time.", "we don't talk about this one.", "that's the alarm. walk casually.", "i saw nothing.", "happens to the best of us. and you."],
     slow: ["too slow, slowcoach.", "tick tock, you got locked.", "the lock got bored."],
     riskStart: ["bold. i respect it.", "ooh, greedy.", "one shot. make it weird."],
@@ -531,7 +530,6 @@
     Sfx.payout(lvl);
     Sfx.stamp(1.25);
     const line = swapped ? pick(NOTES.riskWon)
-      : hit.judged ? pick(NOTES.judged)
       : lvl >= 3 && NOTES.door[safe.id] && Math.random() < 0.7 ? NOTES.door[safe.id]
       : pick(NOTES.win[lvl] || NOTES.win[1]);
     note("");
