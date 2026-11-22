@@ -18,7 +18,7 @@
  *   GET  /api/health          liveness check for uptime monitors
  */
 import { DurableObject } from "cloudflare:workers";
-import { PACKS, VAULTS, HARD, SHORT, RETIRED, SEAMS, EASY, MID, OPEN } from "./seams/index.js";
+import { PACKS, VAULTS, HARD, SHORT, SEAMS, EASY, MID, OPEN } from "./seams/index.js";
 import { DECOYS } from "./lexicon.js";
 import { ITEMS, MAX_BUY, RETIRED_ITEMS, catalogue, inStock } from "./shop.js";
 import * as core from "./core.js";
@@ -57,6 +57,8 @@ export class SeamStore extends DurableObject {
       "CREATE TABLE IF NOT EXISTS plays (pid TEXT NOT NULL, n INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (pid, n))"
     );
     // Columns added after launch. Rows from before then were all answered.
+    // Answers to open prompts that the judge has ruled on, so each is only asked once.
+    this.sql.exec("CREATE TABLE IF NOT EXISTS judged (k TEXT PRIMARY KEY, name TEXT NOT NULL, ok INTEGER NOT NULL)");
     for (const column of [
       "answered INTEGER NOT NULL DEFAULT 1",
       "held INTEGER NOT NULL DEFAULT 0",
@@ -65,6 +67,27 @@ export class SeamStore extends DurableObject {
     ]) {
       try { this.sql.exec(`ALTER TABLE plays ADD COLUMN ${column}`); } catch (err) { /* already there */ }
     }
+  }
+
+  /** Names the judge has accepted for this door, on top of the written list. */
+  extras() {
+    return this.sql.exec("SELECT name FROM judged WHERE ok = 1").toArray().map((r) => r.name);
+  }
+
+  /** The door as it stands now: the written answers plus the accepted ones, which count as rare. */
+  seam(seamId) {
+    const base = BY_ID.get(seamId);
+    const extra = this.extras();
+    return extra.length ? { ...base, answers: [...base.answers, ...extra.map((name) => [name, 5])] } : base;
+  }
+
+  verdict(key) {
+    const rows = this.sql.exec("SELECT name, ok FROM judged WHERE k = ?", key).toArray();
+    return rows[0] ? { name: rows[0].name, ok: !!rows[0].ok } : null;
+  }
+
+  saveVerdict(key, name, ok) {
+    this.sql.exec("INSERT OR IGNORE INTO judged (k, name, ok) VALUES (?, ?, ?)", key, name, ok ? 1 : 0);
   }
 
   counts() {
@@ -90,7 +113,7 @@ export class SeamStore extends DurableObject {
    */
   first(pid, n, seamId, answer, counted) {
     const before = this.row(pid, n);
-    const { real, rows } = core.rarity(BY_ID.get(seamId), this.counts());
+    const { real, rows } = core.rarity(this.seam(seamId), this.counts());
     const mine = rows.find((r) => r.name === answer);
     if (before.state === "new") {
       this.sql.exec(
@@ -136,7 +159,7 @@ export class SeamStore extends DurableObject {
   }
 
   rarityNow(seamId) {
-    return core.rarity(BY_ID.get(seamId), this.counts());
+    return core.rarity(this.seam(seamId), this.counts());
   }
 
   /** Practice runs reuse n = 0, so reopen the safe at the start of each one. */
@@ -148,6 +171,8 @@ export class SeamStore extends DurableObject {
     return this.sql.exec("SELECT 1 FROM plays WHERE pid = ? AND done = 1 LIMIT 1", pid).toArray().length > 0;
   }
 }
+
+const OLD_TOOL_PRICES = { hairpin: 15, hourglass: 10, scope: 25, dynamite: 60, key: 120 };
 
 /**
  * One instance per player (an anonymous id made in their browser). Holds
@@ -169,6 +194,13 @@ export class PlayerStore extends DurableObject {
       this.sql.exec("UPDATE wallet SET balance = balance / 10 WHERE id = 1");
       for (const id of RETIRED_ITEMS) this.sql.exec("DELETE FROM items WHERE item = ?", id);
     }
+    // Tools left the shop when jobs went to five doors. Anything still in a bag is bought back at what it cost.
+    if (this.sql.exec("INSERT OR IGNORE INTO meta (k, v) VALUES ('tools', 0)").rowsWritten > 0) {
+      for (const [id, price] of Object.entries(OLD_TOOL_PRICES)) {
+        this.sql.exec("UPDATE wallet SET balance = balance + ? * COALESCE((SELECT qty FROM items WHERE item = ?), 0) WHERE id = 1", price, id);
+        this.sql.exec("DELETE FROM items WHERE item = ?", id);
+      }
+    }
   }
 
   state() {
@@ -179,6 +211,24 @@ export class PlayerStore extends DurableObject {
   }
 
   /** Pay out one safe. A second call for the same safe and job changes nothing. */
+  /** Claim something that can happen once per job (the risk, the hint). False if already claimed. */
+  once(key) {
+    return this.sql.exec("INSERT OR IGNORE INTO meta (k, v) VALUES (?, 1)", key).rowsWritten > 0;
+  }
+
+  /** Count one use of something capped per job. False once the cap is reached. */
+  within(key, cap) {
+    const rows = this.sql.exec("SELECT v FROM meta WHERE k = ?", key).toArray();
+    if (rows[0] && rows[0].v >= cap) return false;
+    this.sql.exec("INSERT INTO meta (k, v) VALUES (?, 1) ON CONFLICT (k) DO UPDATE SET v = v + 1", key);
+    return true;
+  }
+
+  /** Practice runs reuse job 0, so their once-per-job flags are cleared at the start of each. */
+  resetPractice() {
+    this.sql.exec("DELETE FROM meta WHERE k IN ('risk:0', 'hint:0', 'judge:0')");
+  }
+
   credit(n, seam, amount) {
     const fresh = this.sql.exec("INSERT OR IGNORE INTO credits (n, seam, amount) VALUES (?, ?, ?)", n, seam, amount).rowsWritten > 0;
     if (fresh && amount > 0) this.sql.exec("UPDATE wallet SET balance = balance + ? WHERE id = 1", amount);
@@ -241,7 +291,8 @@ function playable(n) {
 const POOLS = { packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD, easy: EASY, mid: MID, open: OPEN };
 const BAND = new Map();
 for (const [band, packs] of [["easy", EASY], ["mid", MID], ["hard", HARD], ["open", OPEN]]) for (const s of packs.flat()) BAND.set(s.id, band);
-const IN_PLAY = SEAMS.filter((s) => !RETIRED.has(s.id));
+/** Doors with no fixed list, where the judge may be asked about a new answer. */
+const OPEN_IDS = new Set(OPEN.flat().map((s) => s.id));
 const VAULT_IDS = new Set(VAULTS.flat().map((s) => s.id));
 const HARD_IDS = new Set(HARD.flat().map((s) => s.id));
 
@@ -257,7 +308,9 @@ async function handleJob(url, env) {
   if (url.searchParams.get("free")) {
     const pid = url.searchParams.get("pid") || "";
     const seams = core.randomDoors(POOLS);
-    if (PID.test(pid)) await orElse(Promise.all(seams.map((s) => store(env, s.id).reopen(pid))), null);
+    if (PID.test(pid)) {
+      await orElse(Promise.all([...seams.map((s) => store(env, s.id).reopen(pid)), player(env, pid).resetPractice()]), null);
+    }
     return json({ number: 0, seams: seams.map(publicSeam) });
   }
   const n = Number(url.searchParams.get("n"));
@@ -334,7 +387,11 @@ async function handleAnswer(request, env) {
   const guess = typeof body.guess === "string" ? body.guess.slice(0, 60) : "";
   const again = body.again === true;
   const db = store(env, seam.id);
-  const match = core.matchDetail(seam, guess, LEXICON);
+  // Open prompts also accept whatever the judge has let through before.
+  const open = OPEN_IDS.has(seam.id);
+  const current = open ? await orElse(db.seam(seam.id), seam) : seam;
+  let match = core.matchDetail(current, guess, LEXICON);
+  if (!match && open) match = await judge(env, db, pid, n, seam, guess);
   const name = match && match.name;
 
   if (again) {
@@ -345,8 +402,8 @@ async function handleAnswer(request, env) {
       const bank = await payOut(env, live, pid, n, seam.id, 0);
       return json({ ok: false, won: false, balance: bank.balance });
     }
-    const { real, rows } = await orElse(db.rarityNow(seam.id), core.rarity(seam, {}));
-    const mine = rows.find((r) => r.name === name);
+    const { real, rows } = await orElse(db.rarityNow(seam.id), core.rarity(current, {}));
+    const mine = rows.find((r) => r.name === name) || { score: 0, tier: 0, pct: 0 };
     const won = mine.score > before.held;
     const bank = await payOut(env, live, pid, n, seam.id, won ? mine.score : 0);
     return json({
@@ -358,7 +415,7 @@ async function handleAnswer(request, env) {
   // A missed first spin costs nothing here; the browser tracks the tries.
   if (!name) return json({ ok: false });
 
-  const fallback = { state: "new", assisted: false, ...core.rarity(seam, {}) };
+  const fallback = { state: "new", assisted: false, ...core.rarity(current, {}) };
   const result = await orElse(db.first(pid, n, seam.id, name, live), fallback);
   if (result.state === "done") return bad("That safe is already settled.", 409);
   const mine = result.rows.find((r) => r.name === name);
@@ -373,14 +430,50 @@ async function handleAnswer(request, env) {
     measured: result.real >= core.PRIOR_PLAYS,
     deeper: result.rows.filter((r) => r.score > mine.score).length,
     assisted: result.assisted,
+    judged: !!match.judged,
   });
+}
+
+/** How many new answers one player may put to the judge per job. */
+const JUDGE_CAP = 8;
+const JUDGE_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+
+/**
+ * Ask Workers AI whether an unlisted answer to an open prompt is a fair one.
+ * Each answer is only ever asked about once per door: the verdict is kept and
+ * a yes joins the door's answers as a rare one. Any doubt, error or missing
+ * binding counts as a no, so the game still runs without it.
+ */
+async function judge(env, db, pid, n, seam, guess) {
+  const tidy = core.judgeable(guess);
+  if (!tidy || !tidy.key || !env.AI) return null;
+  try {
+    const known = await db.verdict(tidy.key);
+    if (known) return known.ok ? { name: known.name, corrected: false, judged: true } : null;
+    if (!(await player(env, pid).within(`judge:${n}`, JUDGE_CAP))) return null;
+    const model = env.JUDGE_MODEL || JUDGE_MODEL;
+    const reply = await Promise.race([
+      env.AI.run(model, { messages: core.judgePrompt(seam.prompt, tidy.name), max_tokens: 4, temperature: 0 }),
+      new Promise((resolve) => setTimeout(() => resolve(null), 6000)),
+    ]);
+    if (reply === null) return null; // too slow: no verdict, so it can be asked again
+    const ok = core.judgeSaysYes(reply);
+    await db.saveVerdict(tidy.key, tidy.name, ok);
+    return ok ? { name: tidy.name, corrected: false, judged: true } : null;
+  } catch (err) {
+    console.log(JSON.stringify({ event: "judge_failed", seam: seam.id, message: String(err && err.message) }));
+    return null;
+  }
 }
 
 async function handleRisk(request, env) {
   const play = parsePlay(await readBody(request));
   if (play instanceof Response) return play;
-  const before = await orElse(store(env, play.seam.id).risk(play.pid, play.n), { state: "open" });
-  if (before.state !== "open") return bad("Nothing to risk on that safe.", 409);
+  const db = store(env, play.seam.id);
+  if ((await orElse(db.row(play.pid, play.n), { state: "open" })).state !== "open") return bad("Nothing to risk on that door.", 409);
+  // One risk per job, for the whole night.
+  if (!(await orElse(player(env, play.pid).once(`risk:${play.n}`), true))) return bad("You have used your risk tonight.", 409);
+  await orElse(db.risk(play.pid, play.n), null);
   return json({ ok: true });
 }
 
@@ -401,7 +494,7 @@ async function handleReveal(url, env) {
   if (!seam || !PID.test(pid)) return bad("Bad request.");
   const db = store(env, seam.id);
   if (!(await orElse(db.canReveal(pid), true))) return bad("Finish that safe first.", 403);
-  const { real, rows } = core.rarity(seam, await orElse(db.counts(), {}));
+  const { real, rows } = await orElse(db.rarityNow(seam.id), core.rarity(seam, {}));
   return json({
     id: seam.id,
     real,
@@ -438,77 +531,28 @@ async function handleBuy(request, env) {
   return json(result);
 }
 
-/** Two believable wrong answers: real answers from other safes of the same kind. */
-const wordsOf = (text) => new Set(core.normalise(text).split(" ").filter((w) => w.length > 3));
-
 /**
- * Two wrong answers for the dynamite. They come from the safes most like
- * this one (same category, similar wording), so they are not obviously wrong.
+ * The one free hint of the night: the first letter of a decent answer. It
+ * has to be asked for before answering, and a door opened with it is not
+ * counted towards the rarity numbers.
  */
-function decoys(seam) {
-  const mine = wordsOf(seam.prompt);
-  // Retired safes are left out: several have one-letter answers ("A", "B").
-  const ranked = IN_PLAY.filter((other) => other.id !== seam.id)
-    .map((other) => {
-      let score = other.cat === seam.cat ? 2 : 0;
-      for (const w of wordsOf(other.prompt)) if (mine.has(w)) score++;
-      return { other, score: score + Math.random() * 0.5 };
-    })
-    .sort((x, y) => y.score - x.score);
-  const pool = [];
-  for (const { other } of ranked) {
-    for (const [name] of other.answers) {
-      if (name.length >= 3 && !core.matchDetail(seam, name, null) && !pool.includes(name)) pool.push(name);
-    }
-    if (pool.length >= 12) break;
-  }
-  const picks = new Set();
-  for (let guard = 0; picks.size < 2 && guard < 200; guard++) picks.add(pool[Math.floor(Math.random() * pool.length)]);
-  return [...picks];
-}
-
 async function handleUse(request, env) {
   const body = await readBody(request);
   const play = parsePlay(body);
   if (play instanceof Response) return play;
-  const { seam, pid, n, live } = play;
-  const id = String(body.item || "");
-  const item = ITEMS[id];
-  if (!item) return bad("No such item.");
-  if (!live) return bad("Items only work on the daily job.");
+  const { seam, pid, n } = play;
+  if (String(body.item || "") !== "hint") return bad("No such item.");
   if (await overLimit(env.LIMIT_ANSWER, pid)) return tooMany();
 
   const db = store(env, seam.id);
-  if ((await db.row(pid, n)).state !== "new") return bad("Too late for that on this safe.", 409);
-  if (item.kind === "wear") return bad("That is for wearing.");
-  const bag = await player(env, pid).use(id, 1);
-  if (!bag.ok) return json({ error: "You do not have one of those.", items: bag.items }, 402);
-
-  const out = { ok: true, item: id, kind: item.kind, items: bag.items, balance: bag.balance };
-  if (item.kind === "time") {
-    out.seconds = item.seconds;
-  } else if (item.kind === "try") {
-    out.tries = 1;
-  } else if (item.kind === "letter" || item.kind === "key") {
-    await db.assist(pid, n);
-    // A decent answer, not the best one: something in the "rare find" range.
-    const { rows } = await db.rarityNow(seam.id);
-    const decent = rows.filter((r) => r.tier === 3);
-    const pool = decent.length ? decent : rows;
-    const pickOne = pool[Math.floor(Math.random() * pool.length)].name;
-    if (item.kind === "letter") out.letter = pickOne[0].toUpperCase();
-    else out.answer = pickOne;
-  } else if (item.kind === "blast") {
-    await db.assist(pid, n);
-    const { rows } = await db.rarityNow(seam.id);
-    const options = [rows[0].name, ...decoys(seam)];
-    for (let i = options.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [options[i], options[j]] = [options[j], options[i]];
-    }
-    out.options = options;
-  }
-  return json(out);
+  if ((await db.row(pid, n)).state !== "new") return bad("Too late for a hint on this door.", 409);
+  if (!(await player(env, pid).once(`hint:${n}`))) return bad("You have used your hint tonight.", 409);
+  await db.assist(pid, n);
+  // A decent answer, not the best one: something in the "rare find" range.
+  const { rows } = await db.rarityNow(seam.id);
+  const decent = rows.filter((r) => r.tier === 3);
+  const pool = decent.length ? decent : rows;
+  return json({ ok: true, kind: "letter", letter: pool[Math.floor(Math.random() * pool.length)].name[0].toUpperCase() });
 }
 
 /**
