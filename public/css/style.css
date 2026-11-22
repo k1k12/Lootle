@@ -134,6 +134,10 @@ button:disabled{cursor:default}
 .ticket.risk{border-color:var(--gold);color:var(--gold)}
 .ticket.used,.ticket:disabled{opacity:.4;text-decoration:line-through}
 #help,#riskHelp,#shutWhy{color:var(--dim);margin-top:10px}
+.suggest{margin-top:auto;align-self:flex-start;max-width:100%;height:36px;padding:0 14px;border:0;border-radius:18px;background:var(--paper);color:var(--ink);font:500 14px "DM Sans",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:rise .15s ease-out}
+.suggest b{font-weight:700}
+.suggest+.answer{margin-top:0;padding-top:8px}
+@keyframes rise{from{transform:translateY(8px);opacity:0}}
 .answer{margin-top:auto;padding-top:16px;display:flex;flex-direction:column;gap:12px}
 .answer input{height:58px;border:2px solid var(--paper);border-radius:6px;background:transparent;color:var(--paper);padding:0 16px;font-size:22px;width:100%;caret-color:var(--gold)}
 .answer input::placeholder{color:var(--dim);opacity:.6}
