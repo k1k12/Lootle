@@ -387,6 +387,7 @@
     $("help").textContent = risk ? `It has to be rarer than “${game.held.name}” or this door pays nothing.` : "";
     $("ans").value = "";
     $("crack").disabled = false;
+    hideSuggest();
     setState("idle");
     note(risk ? pick(NOTES.riskStart) : startNote(safe));
     drawPips();
@@ -444,8 +445,12 @@
   }
 
   // ---------- Answering ----------
-  async function submitGuess(text) {
+  function hideSuggest() { $("suggest").hidden = true; }
+
+  /** `sure` means the player accepted a spelling fix, so the server may apply it. */
+  async function submitGuess(text, sure) {
     if (!game || screen !== "play" || game.busy || !text) return;
+    hideSuggest();
     game.busy = true;
     $("crack").disabled = true;
     pauseClock();
@@ -454,10 +459,23 @@
 
     let hit;
     try {
-      hit = await api("/api/answer", playBody({ guess: text, again: game.risk }));
+      hit = await api("/api/answer", playBody({ guess: text, again: game.risk, sure: sure === true }));
     } catch (err) {
       if (err.status === 409) return bust("You've been through this door before.", NOTES.bust);
       $("miss").textContent = err.status === 429 ? "Slow down a second." : "Lost the signal. Try that again.";
+      game.busy = false;
+      $("crack").disabled = false;
+      resumeClock();
+      return;
+    }
+    if (hit.suggest) {
+      // Close to a real answer: offer it, and let them take it or type something else. No try is spent.
+      const offer = $("suggest");
+      offer.innerHTML = `did you mean <b>${esc(hit.suggest)}</b>? tap to use it`;
+      offer.dataset.name = hit.suggest;
+      offer.hidden = false;
+      $("miss").textContent = "";
+      Sfx.pin(0);
       game.busy = false;
       $("crack").disabled = false;
       resumeClock();
@@ -870,7 +888,12 @@
     $("breakin").addEventListener("click", () => start("daily"));
     for (const id of ["practice", "practice2"]) $(id).addEventListener("click", () => start("free"));
     $("form").addEventListener("submit", (e) => { e.preventDefault(); submitGuess($("ans").value.trim()); });
-    $("ans").addEventListener("input", () => Sfx.key());
+    $("ans").addEventListener("input", () => { Sfx.key(); hideSuggest(); });
+    $("suggest").addEventListener("click", () => {
+      const name = $("suggest").dataset.name;
+      $("ans").value = name;
+      submitGuess(name, true);
+    });
     $("take").addEventListener("click", takeIt);
     $("risk").addEventListener("click", riskIt);
     $("hint").addEventListener("click", useHint);
