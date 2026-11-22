@@ -4,7 +4,7 @@
 
 A daily trivia game with a heist theme. Play it at [lootle.app](https://lootle.app).
 
-Everyone gets the same ten vault doors each night. Each door is a question
+Everyone gets the same five vault doors each night. Each door is a question
 with a lot of right answers, and the answer fewer people give is worth more.
 Asked to name a country, "France" gets you loose change. "Djibouti" might be
 the perfect crime.
@@ -21,27 +21,25 @@ the perfect crime.
 
 ## How to play
 
-- You have 30 seconds and three goes on each door.
-- Every answer scores from 12 to 100 for how rare it is. The score sets the
-  loot: loose change ($1K), a tidy sum ($2K), a rare find ($4K), a big score
-  ($7K) or the perfect crime ($10K, only for a score of 100). A perfect night
-  is $100K.
-- After a right answer you can take the loot or risk it. A rarer second
-  answer trades up. Anything else and the shutters come down on nothing.
-- A job starts easy and gets harder: four broad questions (name a country,
-  name a dog breed), two narrower ones (name an island in the Caribbean),
-  one hard specialist list, then three open prompts (name something you
-  would find in a fridge).
-- Loot from the daily job goes into your stash. The fence sells tools to use
-  mid-job (a hairpin for one more go, an hourglass, a stethoscope that gives
-  a first letter, dynamite that shows three answers of which one is the
-  rarest, and a skeleton key) and clothes for the cat, which do nothing. A
-  couple of items only turn up on some nights. A door opened with help is
-  marked in your shared result.
-- Old jobs can each be played once for fun. They pay nothing and do not
-  count towards streaks or the rarity numbers.
-- The daily job can be played once. Practice deals ten random doors and does
-  not count either.
+- The lock on each door is the clock: 25 seconds and three tries.
+- Every answer scores from 12 to 100 for how rare it is, and the score
+  decides what is behind the door: loose change ($1K), a wad of cash ($2K),
+  gold bars ($4K), a painting ($7K) or a diamond ($10K, only for a score of
+  100). A perfect night is $50K.
+- Once a night you can risk a door instead of taking the loot. You get one
+  more answer: a rarer one trades up, anything else and the shutters come
+  down on nothing.
+- Once a night Chess (the cat) will give you the first letter of a decent
+  answer. A door opened with a hint is marked in your shared result.
+- A job gets harder as it goes: two broad questions (name a country, name a
+  dog breed), one narrower list, one open prompt (name something you would
+  find in a fridge), then a hard specialist list.
+- Loot from the daily job goes into your stash, and the stash buys clothes
+  for the cat. They do nothing. One of them only turns up some nights.
+- Old jobs ("cold cases") can each be played once for fun. They pay nothing
+  and do not count towards streaks or the rarity numbers.
+- The daily job can be played once. Practice deals five random doors and
+  does not count either.
 
 ## Running it locally
 
@@ -55,8 +53,9 @@ npm test       # checks the question bank, matching and rarity maths
 npm run dev    # serves the game at http://localhost:8787
 ```
 
-`npm run dev` uses Wrangler's local mode, so storage works on your machine
-without a Cloudflare account.
+`npm run dev` keeps storage on your machine. The judge for open prompts
+(below) runs on Cloudflare even in local development, so Wrangler asks you
+to log in once with `npx wrangler login`. A free account is enough.
 
 ## How it is built
 
@@ -66,11 +65,11 @@ browser rather than loaded from files.
 
 | Path | What is in it |
 | --- | --- |
-| `public/` | The front end. `js/game.js` is the game, `js/art.js` draws everything (the skyline, the vault door, the cat) as SVG. No answers. |
+| `public/` | The front end. `js/game.js` is the game, `js/art.js` draws the cat, her wardrobe and the loot as SVG. No answers. |
 | `src/worker.js` | The Worker: `/api/*` routes and the per-safe store |
 | `src/core.js` | Spelling correction, rarity maths and the daily schedule |
 | `src/seams/` | The question bank, in packs. Never sent to the browser. |
-| `src/shop.js` | Shop items, prices and which rare items are in stock on a given night |
+| `src/shop.js` | The wardrobe: clothes, prices and which rare ones are in stock on a given night |
 | `src/lexicon.js` | Names that must not be auto-corrected into an answer |
 | `tests/run.js` | Checks on the bank, matching, rarity and schedule |
 | `wrangler.jsonc` | Cloudflare configuration |
@@ -101,6 +100,22 @@ weight of 1,000 answers. An answer's score is 12 for the one everybody gives,
 rising towards 96 as it gets rarer. About one in forty of the least-said
 answers on each door scores a perfect 100. Until a door has 1,000 real
 answers the results screen says its numbers are mostly an estimate.
+
+### The judge
+
+Four doors in five are checked against a written list. The open prompts
+("name something you would find in a fridge") cannot be: nobody can list
+every sensible answer. So when an answer to an open prompt is not on the
+list, the Worker asks a small language model on Workers AI one yes-or-no
+question: would a quiz host accept this?
+
+- Each answer is only ever asked about once per door. The verdict is stored,
+  and a yes joins that door's answers as a rare one.
+- Only short, plain answers are put to the model (up to four words, letters
+  and digits), which also keeps instructions out of the question.
+- A player can put at most eight new answers to the judge per job.
+- If the model is slow, unavailable or unsure, the answer is simply wrong, as
+  it would have been without a judge. The game never depends on it.
 
 ### Storage
 
@@ -133,26 +148,22 @@ To report a security problem, see [SECURITY.md](SECURITY.md).
 3. Run `npm test`. It checks that every door has at least three answers, a
    tier 1 and a tier 6, and that no spelling points at two different answers.
 
-Packs sit on four shelves in `src/seams/index.js`, and a ten-door job takes
+Packs sit on four shelves in `src/seams/index.js`, and a five-door job takes
 from each in order:
 
 | Shelf | Doors | What goes on it |
 | --- | --- | --- |
-| `EASY` | 1 to 4 | Broad questions with 100 or more answers (`easy-NN.js`) |
-| `MID` | 5 and 6 | Narrower lists (`pack-NN.js`, `vault-NN.js`, `mid-NN.js`) |
-| `HARD` | 7 | Specialist lists (`hard-NN.js`) |
-| `OPEN` | 8 to 10 | Prompts with no fixed list (`open-NN.js`) |
-
-The open prompts are still checked against a list for now, so a sensible
-answer nobody thought of is marked wrong. Those lists are meant to grow.
+| `EASY` | 1 and 2 | Broad questions with 100 or more answers (`easy-NN.js`) |
+| `MID` | 3 | Narrower lists (`pack-NN.js`, `vault-NN.js`, `mid-NN.js`) |
+| `OPEN` | 4 | Prompts with no fixed list (`open-NN.js`) |
+| `HARD` | 5 | Specialist lists (`hard-NN.js`) |
 
 To stop a safe being dealt without breaking old jobs in the archive, add its
 id to `RETIRED` in `src/seams/index.js` rather than deleting it.
 
 Always add packs at the end. The schedule deals each pack in order, so
-appending a pack never changes which doors earlier days had. Jobs before
-number 11 had seven safes and are still dealt the old way, so the archive
-plays as it did.
+appending a pack never changes which doors earlier days had. Jobs 1 to 10 had seven safes and job 11 had ten doors. They are still dealt
+the old way, so the archive plays as it did.
 
 ## Deploying
 
@@ -166,12 +177,15 @@ Releases go through a pull request from `dev` into `main`, as described in
 
 ## Known limits
 
+- Workers AI gives 10,000 "Neurons" a day free. A verdict costs a handful, so
+  that is well over a thousand new answers a day; past it, unlisted answers
+  to open prompts are marked wrong until the next day.
 - Player ids are random values created in the browser. Someone determined
   can make new ones to see answers early or skew the counts. That is fine
   for a casual game, but it would need bot protection before adding prizes
   or a public leaderboard.
 - Cloudflare's free plan allows about 100,000 storage requests a day, which
-  is roughly 2,500 full games. Past that the game carries on using the
+  is roughly 5,000 full games. Past that the game carries on using the
   estimates until the quota resets at midnight UTC.
 
 ## Contributing
