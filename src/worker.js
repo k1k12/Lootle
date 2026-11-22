@@ -392,6 +392,8 @@ async function handleAnswer(request, env) {
   const current = open ? await orElse(db.seam(seam.id), seam) : seam;
   let match = core.matchDetail(current, guess, LEXICON);
   if (!match && open) match = await judge(env, db, pid, n, seam, guess);
+  // A spelling fix is offered first, never applied silently: the player has to accept it.
+  if (match && match.corrected && body.sure !== true) return json({ ok: false, suggest: match.name });
   const name = match && match.name;
 
   if (again) {
