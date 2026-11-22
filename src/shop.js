@@ -1,23 +1,14 @@
 /*
- * The fence. Prices are in thousands of dollars.
+ * The wardrobe. Prices are in thousands of dollars.
  *
- * Tools are used during a job:
- *   kind "try"     one more attempt on the current door
- *   kind "time"    adds `seconds` to the current door
- *   kind "letter"  gives the first letter of a good answer
- *   kind "blast"   shows three answers, one of them the rarest going
- *   kind "key"     opens the door with a decent answer
- * kind "wear" is clothing for the cat: bought once, kept for good.
+ * Everything here is clothing for the cat (kind "wear"): bought once, kept
+ * for good, and no help at all in the game. The tools the shop used to sell
+ * are gone; every player gets one free hint a night instead.
  *
  * An item with `rare` only turns up some nights. `rare` is the chance it is
  * in stock on any given job, the same for every player.
  */
 export const ITEMS = {
-  hairpin: { name: "Hairpin", price: 15, kind: "try", blurb: "One more go when you've run out." },
-  hourglass: { name: "Hourglass", price: 10, kind: "time", seconds: 5, blurb: "Five extra seconds. You'll waste three." },
-  scope: { name: "Stethoscope", price: 25, kind: "letter", blurb: "Listen in. Tells you the first letter." },
-  dynamite: { name: "Dynamite", price: 60, kind: "blast", blurb: "Three answers, one is gold. Not subtle." },
-  key: { name: "Skeleton key", price: 120, kind: "key", rare: 0.35, blurb: "Opens one door. No questions asked." },
   tux: { name: "Tuxedo coat", price: 250, kind: "wear", slot: "coat", blurb: "Black tie, white bib." },
   ginger: { name: "Ginger tabby", price: 250, kind: "wear", slot: "coat", blurb: "Loud. Proud. Easy to spot." },
   siamese: { name: "Siamese", price: 400, kind: "wear", slot: "coat", blurb: "Old money." },
@@ -30,8 +21,8 @@ export const ITEMS = {
   scarf: { name: "Scarf", price: 40, kind: "wear", slot: "neck", blurb: "It gets cold on roofs." },
 };
 
-/** Tools left over from the first shop. They are cleared when a stash is converted. */
-export const RETIRED_ITEMS = ["tomato", "egg", "duck", "hammer"];
+/** Things the shop no longer sells. Any still in a bag are ignored. */
+export const RETIRED_ITEMS = ["tomato", "egg", "duck", "hammer", "hairpin", "hourglass", "scope", "dynamite", "key"];
 
 export const MAX_BUY = 20;
 
