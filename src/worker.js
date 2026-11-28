@@ -226,7 +226,21 @@ export class PlayerStore extends DurableObject {
 
   /** Practice runs reuse job 0, so their once-per-job flags are cleared at the start of each. */
   resetPractice() {
-    this.sql.exec("DELETE FROM meta WHERE k IN ('risk:0', 'hint:0', 'judge:0')");
+    this.sql.exec("DELETE FROM meta WHERE k IN ('risk:0', 'hint:0', 'judge:0', 'ck:0', 'cl:0')");
+  }
+
+  /** The chain for a job: the letter the next door needs ("" for any) and how long it is. */
+  chain(n) {
+    const get = (k) => (this.sql.exec("SELECT v FROM meta WHERE k = ?", k).toArray()[0] || { v: 0 }).v;
+    const code = get(`ck:${n}`);
+    return { key: code ? String.fromCharCode(code) : "", len: get(`cl:${n}`) };
+  }
+
+  setChain(n, key, len) {
+    for (const [k, v] of [[`ck:${n}`, key ? key.charCodeAt(0) : 0], [`cl:${n}`, len]]) {
+      this.sql.exec("INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v = excluded.v", k, v);
+    }
+    return { key, len };
   }
 
   credit(n, seam, amount) {
@@ -291,8 +305,6 @@ function playable(n) {
 const POOLS = { packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD, easy: EASY, mid: MID, open: OPEN };
 const BAND = new Map();
 for (const [band, packs] of [["easy", EASY], ["mid", MID], ["hard", HARD], ["open", OPEN]]) for (const s of packs.flat()) BAND.set(s.id, band);
-/** Doors with no fixed list, where the judge may be asked about a new answer. */
-const OPEN_IDS = new Set(OPEN.flat().map((s) => s.id));
 const VAULT_IDS = new Set(VAULTS.flat().map((s) => s.id));
 const HARD_IDS = new Set(HARD.flat().map((s) => s.id));
 
@@ -373,9 +385,22 @@ function parsePlay(body) {
 }
 
 /** Pay a safe into the stash. Practice runs and archive jobs never pay. */
-async function payOut(env, live, pid, n, seamId, score) {
+async function payOut(env, live, pid, n, seamId, score, chainLength = 1) {
   if (!live) return { paid: 0 };
-  return orElse(player(env, pid).credit(n, seamId, core.TIER_K[core.levelOf(score)] || 0), { paid: 0 });
+  return orElse(player(env, pid).credit(n, seamId, core.chainPay(core.levelOf(score), chainLength)), { paid: 0 });
+}
+
+/** The letter the next door will need, or "" if that door has no answer starting with it. */
+function nextKey(n, seamId, nextId, name) {
+  const letter = core.lastLetter(name);
+  let next = null;
+  if (n === 0) next = BY_ID.get(String(nextId || ""));
+  else {
+    const doors = core.jobDoors(POOLS, n);
+    next = doors[doors.findIndex((s) => s.id === seamId) + 1] || null;
+  }
+  if (!next) return "";
+  return core.hasLetter(next, letter) ? letter : "";
 }
 
 async function handleAnswer(request, env) {
@@ -387,13 +412,17 @@ async function handleAnswer(request, env) {
   const guess = typeof body.guess === "string" ? body.guess.slice(0, 60) : "";
   const again = body.again === true;
   const db = store(env, seam.id);
-  // Open prompts also accept whatever the judge has let through before.
-  const open = OPEN_IDS.has(seam.id);
-  const current = open ? await orElse(db.seam(seam.id), seam) : seam;
+  const me = player(env, pid);
+  // Every door also accepts whatever the judge has let through before.
+  const current = await orElse(db.seam(seam.id), seam);
+  // The chain: after the first door, an answer has to start with the last letter of the one before.
+  const chain = again ? { key: "", len: 0 } : await orElse(me.chain(n), { key: "", len: 0 });
+  const key = core.hasLetter(current, chain.key) ? chain.key : "";
+  if (key && core.firstLetter(guess) !== key) return json({ ok: false, wrongKey: true, key });
   let match = core.matchDetail(current, guess, LEXICON);
-  if (!match && open) match = await judge(env, db, pid, n, seam, guess);
-  // A spelling fix is offered first, never applied silently: the player has to accept it.
-  if (match && match.corrected && body.sure !== true) return json({ ok: false, suggest: match.name });
+  if (!match) match = await judge(env, db, pid, n, seam, guess);
+  // A tiny slip is fixed quietly. Anything bigger is offered, and the player has to accept it.
+  if (match && match.corrected && body.sure !== true && !core.slip(match, guess)) return json({ ok: false, suggest: match.name });
   const name = match && match.name;
 
   if (again) {
@@ -421,9 +450,22 @@ async function handleAnswer(request, env) {
   const result = await orElse(db.first(pid, n, seam.id, name, live), fallback);
   if (result.state === "done") return bad("That safe is already settled.", 409);
   const mine = result.rows.find((r) => r.name === name);
+  // Opening a door extends the chain and pays straight away: its loot times the chain.
+  let length = chain.len;
+  let next = "";
+  if (result.state === "new") {
+    length = chain.len + 1;
+    next = nextKey(n, seam.id, body.next, name);
+    await orElse(me.setChain(n, next, length), null);
+  }
+  const bank = result.state === "new" ? await payOut(env, live, pid, n, seam.id, mine.score, length) : {};
   return json({
     ok: true,
     name,
+    chain: length,
+    next,
+    paid: bank.paid || 0,
+    balance: bank.balance,
     corrected: match.corrected,
     tier: mine.tier,
     score: mine.score,
@@ -484,9 +526,9 @@ async function handleBank(request, env) {
   if (play instanceof Response) return play;
   const { seam, pid, n, live } = play;
   const before = await orElse(store(env, seam.id).finish(pid, n), { state: "done", held: 0, risking: false });
-  // Banking pays the held loot, unless they had already chosen to risk it.
-  const score = before.state === "open" && !before.risking ? before.held : 0;
-  const bank = before.state === "done" ? {} : await payOut(env, live, pid, n, seam.id, score);
+  // An opened door was paid when it opened. A door that was never opened breaks the chain and pays nothing.
+  if (before.state === "new") await orElse(player(env, pid).setChain(n, "", 0), null);
+  const bank = before.state === "done" ? {} : await payOut(env, live, pid, n, seam.id, 0);
   return json({ ok: true, paid: bank.paid || 0, balance: bank.balance });
 }
 

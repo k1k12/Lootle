@@ -200,7 +200,7 @@ ok(core.utcDigNumber(Date.UTC(2026, 10, 13, 0, 0, 1)) === 2, "next day is dig #2
   // Five doors from V3_FROM: two easy, one narrower, one open prompt, one hard.
   const lastSeen = new Map();
   for (const s of core.jobDoors(pools, core.V3_FROM - 1)) lastSeen.set(s.id, core.V3_FROM - 1);
-  for (let d = core.V3_FROM; d < core.V3_FROM + 120; d++) {
+  for (let d = core.V3_FROM; d < core.V4_FROM; d++) {
     const job = core.jobDoors(pools, d);
     ok(job.length === 5 && new Set(job.map((s) => s.id)).size === 5, "five different doors");
     ok(job.map(kind).join() === "easy,easy,mid,open,hard", "easy first, the hard one last");
@@ -209,6 +209,15 @@ ok(core.utcDigNumber(Date.UTC(2026, 10, 13, 0, 0, 1)) === 2, "next day is dig #2
       lastSeen.set(s.id, d);
     }
   }
+  // From V4_FROM answers chain, so only big lists and open prompts are dealt.
+  for (let d = core.V4_FROM; d < core.V4_FROM + 200; d++) {
+    const job = core.jobDoors(pools, d);
+    ok(job.length === 5 && new Set(job.map((s) => s.id)).size === 5, "five different chained doors " + d + " " + job.map((s) => s && s.id));
+    ok(job.every((s) => s.answers.length >= core.BIG_LIST), "chained doors all have plenty of answers");
+    ok(kind(job[0]) === "easy" && kind(job[1]) === "easy" && kind(job[2]) === "open" && kind(job[4]) === "open", "two broad questions, then open prompts around a big list");
+  }
+  const chainPractice = core.randomDoors(pools);
+  ok(chainPractice.length === 5 && new Set(chainPractice).size === 5 && chainPractice.every((s) => s.answers.length >= core.BIG_LIST), "practice deals five big doors");
   const stub = (id) => ({ id, cat: "Test", prompt: "z.", answers: [["a", 1], ["b", 6]] });
   const grown = { ...pools, easy: [...EASY, [stub("ze")]], mid: [...MID, [stub("zm")]], hard: [...HARD, [stub("zh")]], open: [...OPEN, [stub("zo")]] };
   const same = Array.from({ length: 5 }, (_, i) => core.jobDoors(grown, core.V2_FROM + i).map((s) => s.id).join() === core.jobDoors(pools, core.V2_FROM + i).map((s) => s.id).join());
@@ -284,6 +293,20 @@ for (const s of bank) {
   }
   const asked = core.judgePrompt("Name something you would find in a fridge.", "Oat Milk");
   ok(asked.length === 2 && asked[1].content.includes("Oat Milk") && asked[1].content.includes("fridge"), "the judge is shown the question and the answer");
+}
+
+{
+  // The chain: the last letter of one answer is the key to the next door.
+  ok(core.firstLetter("The Bahamas") === "b" && core.firstLetter("Éire") === "e" && core.firstLetter("  'Ohio'") === "o", "first letters skip the, accents and quotes");
+  ok(core.lastLetter("Saluki") === "i" && core.lastLetter("Côte d'Ivoire!") === "e" && core.lastLetter("Area 51") === "a", "last letters skip punctuation and digits");
+  const dogs = seam("dog-breeds");
+  ok(core.hasLetter(dogs, "s") && core.hasLetter(dogs, "") && !core.hasLetter({ answers: [["Pug", 1]] }, "z"), "a door without the letter waives the key");
+  ok(core.chainPay(3, 1) === core.TIER_K[3] && core.chainPay(3, 3) === 3 * core.TIER_K[3] && core.chainPay(5, 9) === 5 * core.TIER_K[5], "loot is multiplied by the chain, up to five");
+  ok(core.chainPay(0, 4) === 0, "nothing times anything is nothing");
+  const slipped = core.matchDetail(dogs, "Akta");
+  ok(slipped && slipped.corrected && slipped.dist === 1 && !core.slip(slipped, "Akta"), "a short word one letter out is offered, not fixed");
+  const long = core.matchDetail(dogs, "Dalmation");
+  ok(long && long.name === "Dalmatian" && core.slip(long, "Dalmation"), "a longer word one letter out is fixed quietly");
 }
 
 console.log(`All ${checks} checks passed across ${bank.length} safes.`);

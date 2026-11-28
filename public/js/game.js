@@ -2,929 +2,404 @@
 (function () {
   "use strict";
 
-  const Art = window.LootleArt;
-  const PAY = [0, 1, 2, 4, 7, 10]; // thousands of dollars, by loot level
-  const SQUARES = ["⬛", "⬜", "\u{1F7E9}", "\u{1F7E6}", "\u{1F7EA}", "\u{1F7E8}"];
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  const three = (n) => String(n).padStart(3, "0");
+  const money = (k) => (k >= 1000 ? "$" + (k / 1000).toFixed(2).replace(/\.?0+$/, "") + "M" : "$" + k + "K");
+  const norm = (t) => String(t).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/&/g, " and ")
+    .replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim().replace(/^the /, "").replace(/^an? (?=.{3})/, "");
+  const firstLetter = (t) => (norm(t).match(/[a-z]/) || [""])[0];
+
   const SECONDS = 25;
-  const SECONDS_RISK = 15;
   const TRIES = 3;
   const EPOCH = Date.UTC(2026, 10, 12);
   const STORE_KEY = "lootle:v1";
-  const SCREENS = ["front", "play", "result", "wardrobe", "archive", "how"];
-
-  const $ = (id) => document.getElementById(id);
-  const money = (k) => (k >= 1000 ? "$" + (Math.round(k / 10) / 100).toFixed(2).replace(/\.?0+$/, "") + "M" : "$" + k + "K");
-  const three = (n) => String(n).padStart(3, "0");
-  const esc = (s) =>
-    String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const pick = (list) => list[Math.floor(Math.random() * list.length)];
-  const level = (n) => Math.max(0, Math.min(5, n | 0));
-  const colour = (lvl) => (lvl ? `var(--l${lvl})` : "var(--red)");
-  /** Restart a CSS animation that is driven by a class. */
-  function replay(node, name) {
-    node.classList.remove(name);
-    void node.offsetWidth;
-    node.classList.add(name);
-  }
-
-  // ---------- What Chess scribbles on the file ----------
-  const NOTES = {
-    start: ["think weird.", "what wouldn't they say?", "go on then, impress me.", "no pressure. (some pressure.)", "first thing in your head? bin it.", "be niche.", "the obvious one pays peanuts."],
-    open: ["anything goes. make it odd.", "there are no wrong answers. (there are.)", "say something only you would say."],
-    hard: ["this one's mean. sorry.", "deep breath.", "nobody said crime was easy."],
-    topic: [
-      [/geograph|countr|capital|island|river|mountain|cit(y|ies)|lake/, ["someone owns an atlas, right?", "not france. never france.", "been anywhere nice?"]],
-      [/nature|animal|bird|plant|flower|tree/, ["channel your inner attenborough.", "touch grass, then answer."]],
-      [/food|drink|cook/, ["now i'm hungry.", "don't say chips."]],
-      [/histor|royal|war|king|queen/, ["were you listening in school?", "history. the original gossip."]],
-      [/scien|space|chem|physic|math|tech/, ["nerds, this is your moment.", "show your working. (don't.)"]],
-      [/sport|football|olymp/, ["i only do cat-letics.", "no sweat. literally none."]],
-      [/music|film|tv|book|art|cultur|literat/, ["very cultured. allegedly.", "popcorn's on you."]],
-      [/word|languag|letter/, ["use your words. the weird ones."]],
-    ],
-    miss: ["nope.", "not a thing.", "try again, sherlock.", "spelling? or lying?", "the door did not budge.", "bold. wrong, but bold."],
-    win: [
-      [],
-      ["groundbreaking.", "everyone and their nan said that.", "well, it's money.", "bold of you to say the obvious."],
-      ["not bad. not good. fine.", "a tidy little sum.", "we take those."],
-      ["ooh. look at you.", "now we're talking.", "someone's been reading."],
-      ["did someone say genius?", "who ARE you?", "okay, show-off.", "frame it. literally."],
-      ["the perfect crime. i'm not crying, you are.", "nobody said that. NOBODY.", "i'd follow you into any vault."],
-    ],
-    // For a good answer (rare find or better) on a particular door.
-    door: {
-      "dog-breeds": "did someone say dog whisperer?", cheeses: "very brie-lliant.", "all-countries": "well travelled, are we?",
-      cocktails: "it's five o'clock somewhere.", pasta: "pasta la vista.", dinosaurs: "rawr.", birds: "a little bird told you?",
-      flowers: "how romantic.", trees: "barking up the right tree.", "sea-creatures": "something fishy about that. i like it.",
-      fruits: "fruity.", mammals: "fellow mammal. respect.", insects: "you're bugging me. in a good way.",
-      colours: "colour me impressed.", sports: "good sport.", jobs: "nice work if you can get it.", instruments: "music to my ears.",
-      "body-parts": "that took guts.", "car-makes": "vroom.", "in-a-fridge": "cool answer.", "pizza-toppings": "controversial topping. approved.",
-      superpowers: "mine is napping.", "mythical-creatures": "i'm also a legend.", "in-a-bank-vault": "you'd know.", gemstones: "shiny.",
-      "board-games": "i don't play games. (i do.)", lakes: "deep.", rivers: "going with the flow.", mountains: "peak performance.",
-      "capital-cities": "capital idea.", elements: "you're in your element.", currencies: "money talks.", "us-states": "united, apparently.",
-      vegetables: "five a day. sorted.", "seas-oceans": "sea what you did there.", "caribbean-islands": "holiday's on you.",
-      dances: "smooth moves.", "ice-cream-flavours": "sweet.", "sandwich-fillings": "best thing since sliced bread.",
-      breakfast: "most important answer of the day.", "things-that-fly": "you're flying.", "round-things": "well rounded.",
-      "things-you-lose": "you'd lose your own tail.", "reasons-to-be-late": "i've used that one.", "at-a-wedding": "i do.",
-    },
-    bust: ["better luck next time.", "we don't talk about this one.", "that's the alarm. walk casually.", "i saw nothing.", "happens to the best of us. and you."],
-    slow: ["too slow, slowcoach.", "tick tock, you got locked.", "the lock got bored."],
-    riskStart: ["bold. i respect it.", "ooh, greedy.", "one shot. make it weird."],
-    riskWon: ["greedy AND right.", "worth it.", "never doubted you. (i did.)"],
-    riskLost: ["greed. it gets us all.", "should've taken the money.", "and that's why we don't gamble."],
-    rank: {
-      Mastermind: ["teach me your ways.", "i'm putting you in charge."],
-      Safecracker: ["smooth. very smooth.", "professional work."],
-      "Cat Burglar": ["not bad. same time tomorrow?", "one of us."],
-      Pickpocket: ["small-time. it's a start.", "we all start somewhere."],
-      Lookout: ["you kept watch beautifully.", "tomorrow, we ride again."],
-    },
-  };
-  function startNote(safe) {
-    if (safe.band === "open") return pick(NOTES.open);
-    if (safe.band === "hard" || safe.hard) return pick(NOTES.hard);
-    const about = (safe.cat + " " + safe.prompt).toLowerCase();
-    const topic = NOTES.topic.find((t) => t[0].test(about));
-    return topic && Math.random() < 0.6 ? pick(topic[1]) : pick(NOTES.start);
-  }
+  const PAY = [0, 1, 2, 4, 7, 10]; // thousands, by loot level; times the chain
+  const SCORES = [12, 38, 64, 85, 100];
+  const LEVELS = [
+    { n: "BUSTED", hex: "#ff4d5e" },
+    { n: "LOOSE CHANGE", hex: "#b8bfd6" },
+    { n: "TIDY SUM", hex: "#5fd4a8" },
+    { n: "RARE FIND", hex: "#6fa8ff" },
+    { n: "BIG SCORE", hex: "#b48cff" },
+    { n: "PERFECT CRIME", hex: "#ffc93d" },
+  ];
+  const QUIPS = [
+    ["better luck next time.", "we don't talk about this one.", "that's the alarm. walk casually."],
+    ["everyone and their nan said that.", "bold of you to say the obvious.", "well. it's money."],
+    ["a tidy little sum.", "not bad. not good. fine.", "we take those."],
+    ["now we're talking.", "someone's been reading.", "ooh. look at you."],
+    ["who ARE you?", "okay, show-off.", "frame it."],
+    ["nobody said that. NOBODY.", "the perfect crime.", "i'd follow you into any vault."],
+  ];
+  const NOTES = ["laser grid · armed", "night guard · asleep (probably)", "vault built 1923 · never robbed · yet", "motion sensor 4 · broken since tuesday",
+    "the cat has been here before", "pressure plate · do not stand here", "insurance · underpriced", "air vent · cat-sized",
+    "alarm · wired to a very loud bell", "safe deposit box 117 · smells of fish"];
+  const RANKS = [[0.55, "MASTERMIND"], [0.3, "SAFECRACKER"], [0.15, "CAT BURGLAR"], [0.06, "PICKPOCKET"], [0, "LOOKOUT"]];
 
   // ---------- Storage (best effort) ----------
-  function load() {
-    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch (e) { return {}; }
-  }
-  function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(saved)); } catch (e) { /* private mode */ }
-  }
-  let saved = load();
-  if (!saved.pid) {
-    saved.pid = window.crypto && crypto.randomUUID
-      ? crypto.randomUUID()
-      : "p-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-  }
-  // Sound is on for everyone the first time they see this version.
-  if (!saved.look3) { saved.look3 = 1; saved.muted = false; }
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch (e) { saved = {}; }
+  const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(saved)); } catch (e) { /* private mode */ } };
+  if (!saved.pid) saved.pid = window.crypto && crypto.randomUUID ? crypto.randomUUID() : "p-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  if (!saved.look4) { saved.look4 = 1; saved.muted = false; }
   save();
-  if (saved.fit) Art.fit(saved.fit);
+  const today = (() => { const d = new Date(); return Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - EPOCH) / 86400000) + 1; })();
 
-  function localJobNumber() {
-    const d = new Date();
-    return Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - EPOCH) / 86400000) + 1;
-  }
-  const today = localJobNumber();
-
-  // ---------- Server ----------
   async function api(path, body) {
-    const res = await fetch(path, body
-      ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
-      : undefined);
+    const res = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined);
     let data = null;
     try { data = await res.json(); } catch (e) { /* not json */ }
-    if (!res.ok) {
-      const err = new Error((data && data.error) || "Request failed");
-      err.status = res.status;
-      err.data = data;
-      throw err;
-    }
+    if (!res.ok) { const err = new Error((data && data.error) || "Request failed"); err.status = res.status; throw err; }
     return data;
   }
 
-  // ---------- Sound (all synthesised, no audio files) ----------
-  const Sfx = {
-    ctx: null,
-    muted: !!saved.muted,
-    wake() {
-      if (this.muted) return null;
-      try {
-        if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        if (this.ctx.state === "suspended") this.ctx.resume();
-      } catch (e) { this.ctx = null; }
-      return this.ctx;
-    },
-    tone(freq, dur, type, vol, delay, slideTo) {
-      const ctx = this.wake();
-      if (!ctx) return;
-      const t = ctx.currentTime + (delay || 0);
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = type || "square";
-      osc.frequency.setValueAtTime(freq, t);
-      if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
-      gain.gain.setValueAtTime(vol || 0.06, t);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + dur + 0.02);
-    },
-    noise(dur, vol, cutoff, delay) {
-      const ctx = this.wake();
-      if (!ctx) return;
-      const t = ctx.currentTime + (delay || 0);
-      const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-      const src = ctx.createBufferSource();
-      src.buffer = buffer;
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = cutoff;
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(vol, t);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      src.connect(filter).connect(gain).connect(ctx.destination);
-      src.start(t);
-    },
-    click() { this.tone(520, 0.05, "square", 0.05); },
-    key() { this.pin(0, 1400, 0.4); },
-    miss() { this.tone(170, 0.22, "sawtooth", 0.07, 0, 80); this.pin(0.02); },
-    /** One click of the lock: a dry metallic tick. */
-    pin(delay, pitch, quiet) { this.noise(0.03, 0.18 * (quiet || 1), 6500, delay); this.tone(pitch || 2100, 0.025, "square", 0.025 * (quiet || 1), delay); },
-    tick(urgent) { this.pin(0, urgent ? 2600 : 1800, urgent ? 1.4 : 0.7); },
-    heartbeat() { this.tone(60, 0.12, "sine", 0.3); this.tone(52, 0.14, "sine", 0.22, 0.16); },
-    /** The lock giving way: clicks that speed up, then the bolts, then the doors rolling apart. */
-    crack(score) {
-      const pins = 6 + Math.round(score / 12);
-      for (let i = 0; i < pins; i++) this.pin(0.34 * Math.pow(i / pins, 0.7), 1500 + (i / pins) * 1500);
-      this.tone(70, 0.3, "sine", 0.3, 0.36);
-      this.tone(140, 0.08, "square", 0.05, 0.36);
-      this.noise(0.7, 0.14, 700, 0.4);
-    },
-    payout(lvl) {
-      const notes = [523, 659, 784, 1047, 1319];
-      for (let n = 0; n < lvl; n++) this.tone(notes[n], 0.13, "square", 0.055, 1.05 + n * 0.07);
-      if (lvl === 5) [2093, 2637, 3136].forEach((f, i) => this.tone(f, 0.5, "triangle", 0.06, 1.5 + i * 0.12));
-    },
-    stamp(delay) { this.noise(0.09, 0.5, 900, delay); this.tone(110, 0.1, "sine", 0.3, delay); },
-    slam() {
-      this.noise(0.35, 0.55, 420);
-      this.tone(90, 0.3, "sawtooth", 0.14, 0, 40);
-      this.stamp(0.24);
-      for (let i = 0; i < 3; i++) {
-        this.tone(620, 0.2, "square", 0.045, 0.45 + i * 0.4, 880);
-        this.tone(880, 0.2, "square", 0.045, 0.65 + i * 0.4, 620);
-      }
-    },
-    coin() { this.tone(988, 0.07, "square", 0.05); this.tone(1319, 0.2, "square", 0.05, 0.07); },
-    no() { this.tone(140, 0.3, "sawtooth", 0.07, 0, 60); },
-    fanfare() { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => this.tone(f, 0.16, "square", 0.06, i * 0.13)); this.stamp(0.2); },
+  // ---------- Sound (all synthesised) ----------
+  let AC = null;
+  let muted = !!saved.muted;
+  const ac = () => { if (muted) return null; try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === "suspended") AC.resume(); } catch (e) { AC = null; } return AC; };
+  function tone(f, d, type, v, at, to) { const c = ac(); if (!c) return; const t = c.currentTime + (at || 0); const o = c.createOscillator(), g = c.createGain(); o.type = type || "square"; o.frequency.setValueAtTime(f, t); if (to) o.frequency.exponentialRampToValueAtTime(to, t + d); g.gain.setValueAtTime(v || 0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(g).connect(c.destination); o.start(t); o.stop(t + d + 0.02); }
+  function noise(d, v, cut, at, hp) { const c = ac(); if (!c) return; const t = c.currentTime + (at || 0); const b = c.createBuffer(1, Math.ceil(c.sampleRate * d), c.sampleRate); const x = b.getChannelData(0); for (let i = 0; i < x.length; i++) x[i] = Math.random() * 2 - 1; const s = c.createBufferSource(); s.buffer = b; const f = c.createBiquadFilter(); f.type = hp ? "highpass" : "lowpass"; f.frequency.value = cut; const g = c.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d); s.connect(f).connect(g).connect(c.destination); s.start(t); }
+  const sfx = {
+    key() { noise(0.02, 0.06, 5000, 0, 1); },
+    pin(i) { noise(0.035, 0.3, 7000, 0, 1); tone(900 + i * 260, 0.05, "square", 0.05); tone(70, 0.08, "sine", 0.25); },
+    slide() { noise(0.3, 0.05, 1800); },
+    jam() { noise(0.25, 0.18, 400); tone(110, 0.2, "sawtooth", 0.06, 0, 70); },
+    open(l) { tone(60, 0.35, "sine", 0.4); noise(0.5, 0.12, 900, 0.05); [523, 659, 784, 1047, 1319].slice(0, l).forEach((f, i) => tone(f, 0.14, "square", 0.05, 0.25 + i * 0.08)); if (l === 5) [2093, 2637, 3136].forEach((f, i) => tone(f, 0.5, "triangle", 0.06, 0.7 + i * 0.12)); },
+    miss() { tone(160, 0.25, "sawtooth", 0.07, 0, 80); },
+    slam() { noise(0.4, 0.6, 450); tone(85, 0.35, "sawtooth", 0.15, 0, 40); for (let i = 0; i < 4; i++) { tone(640, 0.2, "square", 0.045, 0.3 + i * 0.4, 900); tone(900, 0.2, "square", 0.045, 0.5 + i * 0.4, 640); } },
+    tick() { noise(0.02, 0.25, 6000, 0, 1); },
+    count() { tone(440, 0.06, "square", 0.04); },
+    link() { tone(1568, 0.12, "triangle", 0.07); tone(2093, 0.25, "triangle", 0.06, 0.09); },
   };
 
-  // ---------- State ----------
-  let game = null; // { kind: "daily" | "past" | "free", number, safes, results, index, tries, risk, ... }
-  let bag = { balance: 0, items: {}, shop: [] };
-  let screen = "front";
-  let cameFrom = "front";
-  const clock = { left: 0, total: 0, ends: 0, running: false, raf: 0, lastSecond: -1 };
+  // ---------- The room ----------
+  const dust = $("dust"), dx = dust.getContext("2d");
+  let motes = [];
+  function sizeDust() { dust.width = innerWidth; dust.height = innerHeight; motes = Array.from({ length: 70 }, () => ({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, r: Math.random() * 1.6 + 0.3, v: Math.random() * 0.25 + 0.05, a: Math.random() * 0.5 + 0.1 })); }
+  function drawDust() { dx.clearRect(0, 0, dust.width, dust.height); for (const m of motes) { m.y -= m.v; m.x += Math.sin((m.y + m.r * 99) / 60) * 0.15; if (m.y < -4) m.y = dust.height + 4; dx.fillStyle = `rgba(200,210,255,${m.a})`; dx.fillRect(m.x, m.y, m.r, m.r); } requestAnimationFrame(drawDust); }
+  addEventListener("resize", sizeDust); sizeDust(); drawDust();
+  function ambient() {
+    document.querySelectorAll(".note").forEach((x) => x.remove());
+    const n = document.createElement("div"); n.className = "note"; n.textContent = pick(NOTES);
+    const left = Math.random() < 0.5, wide = innerWidth > 900;
+    n.style[left ? "left" : "right"] = (2 + Math.random() * (wide ? 6 : 4)) + "%";
+    n.style.top = wide ? (22 + Math.random() * 56) + "%" : (17 + Math.random() * 4) + "%";
+    $("room").appendChild(n); requestAnimationFrame(() => n.classList.add("on"));
+    setTimeout(() => n.classList.remove("on"), 5200);
+  }
+  setInterval(ambient, 4600); ambient();
+  let camT = 2 * 3600 + 13 * 60 + 7;
+  setInterval(() => { camT++; const p = (v) => String(v).padStart(2, "0"); $("clock").textContent = `${p(Math.floor(camT / 3600))}:${p(Math.floor(camT / 60) % 60)}:${p(camT % 60)}`; }, 1000);
 
-  const takeOf = (results) => results.reduce((sum, r) => sum + (r.k || 0), 0);
-  function rank(k, doors) {
-    const share = k / (doors * 10);
-    if (share >= 0.6) return "Mastermind";
-    if (share >= 0.4) return "Safecracker";
-    if (share >= 0.25) return "Cat Burglar";
-    if (share >= 0.1) return "Pickpocket";
-    return "Lookout";
-  }
-
-  function show(id) {
-    if (id === "back") id = game && game.done && cameFrom === "result" ? "result" : "front";
-    if (screen === "front" || screen === "result") cameFrom = screen;
-    if (id === "front") drawFront();
-    if (id === "wardrobe") drawWardrobe();
-    if (id === "archive") drawArchive();
-    for (const name of SCREENS) $(name).classList.toggle("on", name === id);
-    window.scrollTo(0, 0);
-    screen = id;
-  }
-
-  // ---------- Front page ----------
-  function drawFront() {
-    $("caseNo").textContent = "CASE No. " + three(today);
-    const streak = saved.lastFinished >= today - 1 ? saved.streak || 0 : 0;
-    $("streak").hidden = streak < 1;
-    $("streak").textContent = streak + (streak === 1 ? " NIGHT RUNNING" : " NIGHTS RUNNING");
-    $("rank").textContent = saved.rank || "Lookout";
-    const progress = saved.progress && saved.progress.number === today ? saved.progress : null;
-    $("breakin").textContent = progress && progress.results.length >= progress.safes.length ? "See the take"
-      : progress && (progress.results.length || progress.live) ? "Back in" : "Break in";
-    document.querySelector("#front .mug").dataset.plate = "No. " + three(today);
-    Art.dress();
-  }
-  function setBalance(balance) {
-    if (typeof balance !== "number") return;
-    bag.balance = balance;
-    document.querySelectorAll(".stash").forEach((e) => { e.textContent = money(balance); });
-  }
-  async function loadBag() {
-    try {
-      const me = await api(`/api/me?pid=${saved.pid}`);
-      bag = { balance: me.balance, items: me.items || {}, shop: me.shop || [] };
-      setBalance(me.balance);
-      if (screen === "wardrobe") drawWardrobe();
-    } catch (e) { /* the game still runs without the wardrobe */ }
-  }
-  function setMute() {
-    $("mute").classList.toggle("off", Sfx.muted);
-    $("mute").querySelector("span").textContent = Sfx.muted ? "Muted" : "Sound";
-    $("mute").setAttribute("aria-pressed", String(!Sfx.muted));
+  // ---------- Pixel sprites ----------
+  const PAL = { b: "#d9a441", h: "#ffe08a", d: "#8c6420", w: "#e9ecff", c: "#5fd4a8", e: "#6fa8ff", p: "#b48cff", y: "#ffc93d", o: "#b8bfd6" };
+  const SPR = {
+    key: ["..hhbb..", ".hbbbbd.", "hbb..bbd", "hbb..bbd", ".bbbbbd.", "..bbbd..", "...bb...", "...bb...", "...bbd..", "...bb...", "...bbdd.", "...bb...", "...bbd..", "...bb...", "...bd...", "....d..."],
+    loot1: ["............", "....oooo....", "...owwwoo...", "...oooooo...", "..oooooooo..", "..owwwwwoo..", "..oooooooo..", ".oooooooooo.", ".owwwwwwwoo.", ".oooooooooo.", "............", "............"],
+    loot2: ["............", "............", "cccccccccccc", "cwwccccccwwc", "ccccwwwwcccc", "cccwccccwccc", "cccwccccwccc", "ccccwwwwcccc", "cwwccccccwwc", "cccccccccccc", "............", "............"],
+    loot3: ["............", "............", "....eeee....", "...ewwwee...", "..eeeeeeee..", "............", "..eeee.eeee.", ".ewwee.ewwee", "eeeeeeeeeeee", "............", "............", "............"],
+    loot4: ["yyyyyyyyyyyy", "yppppppppppy", "ypwwppppeepy", "ypppppppeepy", "yppppcpppppy", "ypppcccppppy", "yppcccccpppy", "ypcccccccppy", "yccccccccccy", "yyyyyyyyyyyy", "............", "............"],
+    loot5: ["............", "...yyyyyy...", "..ywwyyyyy..", ".ywwyyyyyyy.", "yyyyyyyyyyyy", ".yyyyyyyyyy.", "..yyyyyyyy..", "...yyyyyy...", "....yyyy....", ".....yy.....", "............", "............"],
+  };
+  function sprite(name, x, y, px) {
+    let s = `<g transform="translate(${x} ${y})">`;
+    SPR[name].forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== ".") s += `<rect x="${i * px}" y="${j * px}" width="${px + 0.02}" height="${px + 0.02}" fill="${PAL[row[i]]}"/>`; });
+    return s + "</g>";
   }
 
-  // ---------- Starting a job ----------
-  /** kind is "daily", "free" (practice) or "past" (an old job, by number). */
-  async function start(kind, past) {
-    Sfx.click();
-    if ($("breakin").disabled) return;
-    $("breakin").disabled = true;
-    try {
-      const number = kind === "daily" ? today : kind === "past" ? past : 0;
-      const kept = kind === "daily" ? saved.progress : kind === "past" ? saved.pastProgress : null;
-      const progress = kept && kept.number === number ? kept : null;
-      let safes = progress && progress.safes;
-      if (!safes) {
-        const job = await api(number
-          ? `/api/job?n=${number}&pid=${saved.pid}${kind === "past" ? "&archive=1" : ""}`
-          : `/api/job?free=1&pid=${saved.pid}`);
-        if (kind === "past" && job.played) {
-          saved.archive = saved.archive || {};
-          saved.archive[past] = saved.archive[past] || { played: true };
-          save();
-          drawArchive("You've already done case " + three(past) + ".");
-          return;
-        }
-        safes = job.seams;
+  // ---------- The lock: rarer answers go deeper ----------
+  const LINE_Y = (i) => 100 + i * 60;
+  function drawLock() {
+    let s = `<rect x="140" y="40" width="80" height="350" fill="#141a3c" stroke="#3b4580" stroke-width="4" shape-rendering="crispEdges"/>`;
+    for (let y = 48; y < 384; y += 16) s += `<rect x="144" y="${y}" width="72" height="2" fill="#1d2550" shape-rendering="crispEdges"/>`;
+    s += `<rect x="170" y="40" width="20" height="350" fill="#0b0f24" shape-rendering="crispEdges"/>`;
+    s += `<rect x="128" y="28" width="104" height="16" fill="#3b4580" shape-rendering="crispEdges"/><rect x="166" y="28" width="28" height="16" fill="#0b0f24"/>`;
+    SCORES.forEach((sc, i) => {
+      const y = LINE_Y(i), L = LEVELS[i + 1];
+      s += `<g id="tl${i}" opacity=".35"><line x1="8" y1="${y}" x2="352" y2="${y}" stroke="${L.hex}" stroke-width="2" stroke-dasharray="6 6"/>
+        <text x="352" y="${y - 8}" text-anchor="end" font-family="VT323,monospace" font-size="19" fill="${L.hex}" letter-spacing="2">${L.n} · ${sc}</text></g>`;
+      s += `<g id="pin${i}"><rect x="198" y="${y - 10}" width="14" height="20" fill="#7d86b8" shape-rendering="crispEdges"/><rect x="190" y="${y - 6}" width="8" height="12" fill="#d9a441" shape-rendering="crispEdges"/></g>`;
+    });
+    s += `<g id="key"></g>`;
+    $("lock").innerHTML = s;
+  }
+  function resetLock() {
+    SCORES.forEach((_, i) => { $("tl" + i).setAttribute("opacity", ".35"); const p = $("pin" + i); p.style.transition = ""; p.style.transform = ""; });
+    $("key").innerHTML = ""; $("lock").style.opacity = "1"; $("tag").hidden = true;
+  }
+  function setPin(i) {
+    $("tl" + i).setAttribute("opacity", "1"); sfx.pin(i);
+    const p = $("pin" + i); p.style.transition = "transform .1s steps(2)"; p.style.transform = "translateX(10px)";
+    const lock = $("lock"); lock.style.transform = "translate(0,2px)"; setTimeout(() => { lock.style.transform = ""; }, 70);
+  }
+  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  function dropKey(level, done) {
+    const key = $("key");
+    const stops = [-30, ...SCORES.slice(0, level).map((_, i) => LINE_Y(i) - 30)];
+    const draw = (y) => { key.innerHTML = sprite("key", 168, y, 3); };
+    let seg = 0;
+    draw(stops[0]); sfx.slide();
+    const run = () => {
+      if (seg >= stops.length - 1) {
+        if (level >= 5) return setTimeout(done, 250);
+        // reach for the next pin and stop short
+        const from = stops[stops.length - 1], t1 = performance.now();
+        const jam = (now) => { const t = Math.min(1, (now - t1) / 300); draw(Math.round(from + Math.sin(t * Math.PI) * 22)); if (t < 1) requestAnimationFrame(jam); else { sfx.jam(); setTimeout(done, 280); } };
+        return requestAnimationFrame(jam);
       }
-      game = {
-        kind, number, safes, results: progress ? progress.results : [], done: false,
-        riskUsed: !!(progress && progress.riskUsed), hintUsed: !!(progress && progress.hintUsed),
-      };
-      game.index = game.results.length;
-      // A reload mid-decision counts as taking whatever was on the table.
-      const last = game.results[game.index - 1];
-      if (last) bank(last.id);
-      if (game.index >= safes.length) return finish(true);
-      show("play");
-      openDoor(false);
-    } catch (err) {
-      if (screen === "archive") drawArchive("Couldn't load that case. Try again.");
-      else $("pitch").textContent = "Couldn't reach the vault. Check your connection and try again.";
-    } finally {
-      $("breakin").disabled = false;
-    }
+      const a = stops[seg], b = stops[seg + 1], dur = 300 + seg * 120, ts = performance.now();
+      const step = (now) => { const t = Math.min(1, (now - ts) / dur); draw(Math.round(a + (b - a) * ease(t))); if (t < 1) requestAnimationFrame(step); else { setPin(seg); seg++; setTimeout(run, 110 + seg * 60); } };
+      requestAnimationFrame(step);
+    };
+    setTimeout(run, 150);
   }
+  function teeth(flip) { let d = flip ? "M0 100H400V20" : "M0 0H400V80"; for (let x = 390; x >= 0; x -= 10) d += `L${x} ${flip ? (x / 10) % 2 ? 0 : 20 : (x / 10) % 2 ? 100 : 80}`; return d + "Z"; }
 
-  function persist() {
+  // ---------- A night ----------
+  let game = null;
+  let timer = 0, left = 0, counting = 0;
+
+  const ui = {
+    msg(text, warn) { $("msg").textContent = text; $("msg").className = warn ? "warn" : ""; },
+    pips() { $("pips").innerHTML = game.safes.map((s, i) => { const r = game.results[i]; return r ? `<i style="background:${LEVELS[r.level].hex};border-color:transparent"></i>` : `<i class="${i === game.index ? "now" : ""}"></i>`; }).join(""); },
+    tries() { $("tries").innerHTML = [0, 1, 2].map((i) => `<i class="${i < game.tries ? "" : "off"}"></i>`).join(""); $("tries").setAttribute("aria-label", game.tries + " tries left"); },
+    hud() { $("take").textContent = money(game.take); $("chain").textContent = "×" + game.chain; },
+  };
+  const persist = () => {
     if (game.kind === "free") return;
     const slot = game.kind === "past" ? "pastProgress" : "progress";
-    const live = saved[slot] && saved[slot].number === game.number ? saved[slot].live : undefined;
-    saved[slot] = { number: game.number, safes: game.safes, results: game.results, live, riskUsed: game.riskUsed, hintUsed: game.hintUsed };
+    saved[slot] = { number: game.number, safes: game.safes, results: game.results, key: game.key, chain: game.chain, take: game.take, live: game.live };
     save();
-  }
-  const playBody = (extra) => Object.assign(
-    { seam: game.safes[game.index].id, pid: saved.pid, n: game.number },
-    game.kind === "past" ? { archive: true } : null, extra);
-  /** Lock a door on the server. This is also what pays it. */
-  function bank(seamId) {
-    const body = { seam: seamId, pid: saved.pid, n: game.number };
-    if (game.kind === "past") body.archive = true;
-    return api("/api/bank", body).then((r) => { if (r) setBalance(r.balance); }).catch(() => {});
-  }
+  };
+  const body = (extra) => Object.assign({ seam: game.safes[game.index].id, pid: saved.pid, n: game.number }, game.kind === "past" ? { archive: true } : null, extra);
 
-  // ---------- A door ----------
-  const exhibit = () => document.querySelector(".exhibit");
-  function setState(s) { $("play").dataset.s = s; }
-  function note(text, id) {
-    $(id || "note").textContent = text;
-  }
-  function drawPips() {
-    $("pips").classList.toggle("many", game.safes.length > 6);
-    $("pips").innerHTML = game.safes.map((s, i) => {
-      const r = game.results[i];
-      return r ? `<i style="background:${colour(level(r.tier))};border-color:${colour(level(r.tier))}"></i>` : `<i class="${i === game.index ? "now" : ""}"></i>`;
-    }).join("");
-    $("tonight").textContent = game.kind === "daily" ? money(takeOf(game.results)) + " TONIGHT"
-      : game.kind === "past" ? "COLD CASE " + three(game.number) : "PRACTICE";
-  }
-  function drawTries() {
-    let html = "";
-    const total = game.risk ? 1 : TRIES;
-    for (let i = 0; i < total; i++) html += `<i class="${i < game.tries ? "" : "off"}"></i>`;
-    $("tries").innerHTML = html;
-    $("tries").setAttribute("aria-label", game.tries + (game.tries === 1 ? " try left" : " tries left"));
-  }
-  function drawTickets() {
-    const hint = $("hint");
-    hint.disabled = game.hintUsed || game.risk;
-    hint.classList.toggle("used", game.hintUsed);
-    hint.textContent = game.hintUsed ? "Hint · used" : "Hint · 1 left";
-    $("riskLeft").classList.toggle("used", game.riskUsed);
-    $("riskLeft").textContent = game.riskUsed ? "Risk · used" : "Risk · 1 left";
-  }
-
-  function openDoor(risk) {
-    const safe = game.safes[game.index];
-    game.risk = !!risk;
-    game.busy = false;
-    let left = 0;
-    if (!risk) {
-      game.tries = TRIES;
-      game.helped = false;
-      game.held = null;
-      const live = game.kind === "daily" && saved.progress && saved.progress.live;
-      if (live && live.index === game.index) {
-        game.tries = Math.max(1, Math.min(live.tries, TRIES));
-        left = Math.max(2000, live.left);
+  async function start(kind, number) {
+    closeAll();
+    const n = kind === "daily" ? today : kind === "past" ? number : 0;
+    const kept = kind === "daily" ? saved.progress : kind === "past" ? saved.pastProgress : null;
+    const progress = kept && kept.number === n ? kept : null;
+    let safes = progress && progress.safes;
+    try {
+      if (!safes) {
+        const job = await api(n ? `/api/job?n=${n}&pid=${saved.pid}${kind === "past" ? "&archive=1" : ""}` : `/api/job?free=1&pid=${saved.pid}`);
+        if (kind === "past" && job.played) { saved.archive = saved.archive || {}; saved.archive[n] = saved.archive[n] || { played: true }; save(); return openCases("You've already done case " + three(n) + "."); }
+        safes = job.seams.slice(0, 5);
       }
-    } else {
-      game.tries = 1;
-    }
-    const box = exhibit();
-    box.classList.add("snap");
-    box.classList.remove("is-open", "is-shut", "through");
-    void box.offsetWidth;
-    box.classList.remove("snap");
-    $("doorNo").textContent = risk ? `DOOR ${game.index + 1} · ONE GO · BEAT ${game.held.score}` : `DOOR ${game.index + 1} OF ${game.safes.length}`;
-    $("q").textContent = safe.prompt;
-    $("miss").textContent = "";
-    $("help").textContent = risk ? `It has to be rarer than “${game.held.name}” or this door pays nothing.` : "";
-    $("ans").value = "";
-    $("crack").disabled = false;
-    hideSuggest();
-    setState("idle");
-    note(risk ? pick(NOTES.riskStart) : startNote(safe));
-    drawPips();
-    drawTries();
-    drawTickets();
-    startClock(risk ? SECONDS_RISK : SECONDS, left);
-    // Keep the keyboard up between doors on phones.
-    $("ans").focus({ preventScroll: true });
+    } catch (e) { ui.msg("couldn't reach the vault. check your connection.", true); return; }
+    game = { kind, number: n, safes, results: progress ? progress.results : [], key: progress ? progress.key || "" : "", chain: progress ? progress.chain || 0 : 0, take: progress ? progress.take || 0 : 0, live: progress ? progress.live : null };
+    game.index = game.results.length;
+    ui.hud();
+    if (game.index >= safes.length) return finish(true);
+    openDoor();
   }
 
-  // ---------- The lock is the clock ----------
-  function startClock(seconds, leftMs) {
-    clock.total = seconds * 1000;
-    clock.left = leftMs ? Math.min(leftMs, clock.total) : clock.total;
-    clock.lastSecond = -1;
-    resumeClock();
-  }
-  function resumeClock() {
-    cancelAnimationFrame(clock.raf);
-    clock.ends = performance.now() + clock.left;
-    clock.running = true;
-    const dial = $("dial");
-    const tick = (now) => {
-      if (!clock.running) return;
-      clock.left = Math.max(0, clock.ends - now);
-      dial.style.setProperty("--p", (clock.left / clock.total).toFixed(4));
-      const secs = Math.ceil(clock.left / 1000);
-      if (secs !== clock.lastSecond) {
-        clock.lastSecond = secs;
-        saveLive();
-        $("secs").textContent = secs;
-        dial.classList.toggle("low", secs <= 5);
-        dial.setAttribute("aria-label", secs + " seconds left");
-        if (secs > 0 && secs < clock.total / 1000) {
-          if (game.risk) Sfx.heartbeat();
-          else Sfx.tick(secs <= 5);
-        }
-      }
-      if (clock.left <= 0) { clock.running = false; return outOfTime(); }
-      clock.raf = requestAnimationFrame(tick);
-    };
-    clock.raf = requestAnimationFrame(tick);
-  }
-  function pauseClock() {
-    if (!clock.running) return;
-    clock.running = false;
-    cancelAnimationFrame(clock.raf);
-    clock.left = Math.max(0, clock.ends - performance.now());
-  }
-  /** Remember the clock and tries so a refresh cannot buy more time. */
-  function saveLive() {
-    if (!game || game.kind !== "daily" || game.risk || !saved.progress || saved.progress.number !== game.number) return;
-    saved.progress.live = { index: game.index, left: clock.left, tries: game.tries };
-    save();
-  }
-
-  // ---------- Answering ----------
-  function hideSuggest() { $("suggest").hidden = true; }
-
-  /** `sure` means the player accepted a spelling fix, so the server may apply it. */
-  async function submitGuess(text, sure) {
-    if (!game || screen !== "play" || game.busy || !text) return;
-    hideSuggest();
+  function openDoor() {
+    clearInterval(timer); clearInterval(counting);
+    const d = game.safes[game.index];
+    const live = game.live && game.live.index === game.index ? game.live : null;
+    game.tries = live ? live.tries : TRIES;
     game.busy = true;
-    $("crack").disabled = true;
-    pauseClock();
-    Sfx.wake();
-    saveLive();
+    $("stage").classList.remove("busted"); $("reveal").classList.remove("on"); resetLock();
+    $("card").hidden = false; $("card").classList.remove("small");
+    $("cardlab").textContent = `Door ${game.index + 1} of 5 · ${d.cat}`;
+    $("q").textContent = d.prompt.replace(/\.$/, "");
+    const chip = $("keychip");
+    chip.className = "keychip" + (game.key ? "" : " any"); chip.textContent = game.key ? game.key.toUpperCase() : "ANY";
+    $("keytext").textContent = game.key ? `your answer must start with ${game.key.toUpperCase()}` : game.index === 0 ? "first door's free. any letter." : "fresh lock. any letter.";
+    $("doorlab").textContent = `Door ${game.index + 1} of 5`;
+    ui.pips(); ui.tries(); ui.hud();
+    $("form").hidden = false; $("next").hidden = true; $("pill").hidden = true; $("ans").value = ""; $("ans").disabled = true;
+    ui.msg("rarer answers push the key deeper");
+    $("tbar").style.transform = "scaleX(1)"; $("timer").classList.remove("low");
+    // a short count-in, so the question gets read before the clock starts
+    let c = live ? 0 : 3;
+    const go = () => { game.busy = false; $("card").classList.add("small"); $("count").innerHTML = ""; $("ans").disabled = false; $("ans").focus(); startClock(live ? live.left : SECONDS * 10); };
+    if (!c) return go();
+    $("count").innerHTML = `the clock starts in <b>${c}</b>`;
+    counting = setInterval(() => { c--; if (c > 0) { $("count").innerHTML = `the clock starts in <b>${c}</b>`; sfx.count(); } else { clearInterval(counting); go(); } }, 900);
+  }
 
+  function startClock(tenths) {
+    clearInterval(timer); left = tenths;
+    const total = SECONDS * 10;
+    const tick = () => {
+      left--;
+      $("tbar").style.transform = `scaleX(${Math.max(0, left / total)})`;
+      if (left % 10 === 0) {
+        const sec = left / 10;
+        if (game.kind === "daily") { game.live = { index: game.index, left, tries: game.tries }; persist(); }
+        if (sec <= 5 && sec > 0) { $("timer").classList.add("low"); sfx.tick(); ui.msg("the guard's coming back", true); }
+      }
+      if (left <= 0) { clearInterval(timer); bust("too slow. the guard came back."); }
+    };
+    timer = setInterval(tick, 100);
+  }
+
+  async function submit(text, sure) {
+    if (!game || game.busy || !text.trim()) return;
+    ac();
+    $("pill").hidden = true;
+    const typed = text.trim();
+    if (game.key && firstLetter(typed) !== game.key) { ui.msg(`that key won't fit. it needs ${game.key.toUpperCase()}`, true); sfx.miss(); shake($("bar")); return; }
+    game.busy = true; $("go").disabled = true;
+    const nextId = game.kind === "free" && game.safes[game.index + 1] ? game.safes[game.index + 1].id : undefined;
     let hit;
-    try {
-      hit = await api("/api/answer", playBody({ guess: text, again: game.risk, sure: sure === true }));
-    } catch (err) {
-      if (err.status === 409) return bust("You've been through this door before.", NOTES.bust);
-      $("miss").textContent = err.status === 429 ? "Slow down a second." : "Lost the signal. Try that again.";
-      game.busy = false;
-      $("crack").disabled = false;
-      resumeClock();
-      return;
+    try { hit = await api("/api/answer", body({ guess: typed, sure: sure === true, next: nextId })); }
+    catch (err) {
+      game.busy = false; $("go").disabled = false;
+      if (err.status === 409) return bust("you've been through this door before.");
+      return ui.msg(err.status === 429 ? "slow down a second." : "lost the signal. try that again.", true);
     }
-    if (hit.suggest) {
-      // Close to a real answer: offer it, and let them take it or type something else. No try is spent.
-      const offer = $("suggest");
-      offer.innerHTML = `Did you mean <b>${esc(hit.suggest)}</b>?`;
-      offer.dataset.name = hit.suggest;
-      offer.hidden = false;
-      $("miss").textContent = "";
-      Sfx.pin(0);
-      game.busy = false;
-      $("crack").disabled = false;
-      resumeClock();
-      return;
+    game.busy = false; $("go").disabled = false;
+    if (hit.wrongKey) { game.key = hit.key; ui.msg(`that key won't fit. it needs ${hit.key.toUpperCase()}`, true); return shake($("bar")); }
+    if (hit.suggest) { $("pill").innerHTML = `Did you mean <b>${esc(hit.suggest)}</b>?`; $("pill").dataset.name = hit.suggest; $("pill").hidden = false; return; }
+    if (!hit.ok) {
+      game.tries--; ui.tries(); sfx.miss(); shake($("bar")); $("ans").value = "";
+      if (game.tries <= 0) return bust("three wrong. that's the alarm.");
+      return ui.msg(`"${typed}" isn't one`, true);
     }
-    if (game.risk) {
-      setBalance(hit.balance);
-      if (hit.ok && hit.won) return win(hit, true);
-      return bust(hit.ok
-        ? `“${hit.name}” scores ${hit.score}. You needed more than ${game.held.score}, so this door pays nothing.`
-        : `Wrong answer. You had ${game.held.score} in your paws and dropped it.`, NOTES.riskLost, true);
+    win(hit);
+  }
+
+  function win(hit) {
+    clearInterval(timer); game.busy = true; $("ans").disabled = true; $("ans").blur();
+    const level = Math.max(1, Math.min(5, hit.tier | 0));
+    const chain = hit.chain || game.chain + 1;
+    const pay = game.kind === "daily" ? (hit.paid || PAY[level] * Math.min(5, chain)) : PAY[level] * Math.min(5, chain);
+    game.chain = chain; game.take += pay; game.key = hit.next || "";
+    game.results[game.index] = { name: hit.name, score: hit.score, level, pay, chain, prompt: game.safes[game.index].prompt };
+    game.live = null; persist();
+    $("tag").textContent = hit.name.toUpperCase(); $("tag").hidden = false;
+    $("card").hidden = true;
+    ui.msg("the key's going in...");
+    dropKey(level, () => {
+      const L = LEVELS[level];
+      document.documentElement.style.setProperty("--lc", L.hex);
+      $("lootart").innerHTML = sprite("loot" + level, 0, 0, 3); $("lootart").style.display = "";
+      $("lvl").textContent = L.n; $("said").textContent = `"${hit.name}"`;
+      $("gain").innerHTML = `+${money(PAY[level])}${chain > 1 ? ` <b>×${Math.min(5, chain)} chain</b> = ${money(pay)}` : ""}` + (game.kind === "daily" ? "" : " <small>(practice)</small>");
+      $("quip").textContent = pick(QUIPS[level]);
+      $("lock").style.opacity = ".12"; $("tag").hidden = true; $("reveal").classList.add("on"); sfx.open(level);
+      ui.hud(); ui.pips();
+      const last = game.index >= game.safes.length - 1;
+      if (game.key && !last) setTimeout(sfx.link, 600);
+      ui.msg(last ? "last door. get out." : game.key ? `next key: ${game.key.toUpperCase()}` : "next door takes any letter");
+      $("form").hidden = true; $("next").hidden = false;
+      $("next").textContent = last ? "GET OUT ▸" : game.key ? `NEXT · KEY ${game.key.toUpperCase()} ▸` : "NEXT · ANY KEY ▸";
+      $("next").focus();
+    });
+  }
+
+  function bust(why) {
+    clearInterval(timer); game.busy = true; $("ans").disabled = true; $("pill").hidden = true; $("ans").blur();
+    const d = game.safes[game.index];
+    const wanted = game.key;
+    game.results[game.index] = { name: "", score: 0, level: 0, pay: 0, chain: 0, prompt: d.prompt };
+    game.chain = 0; game.key = ""; game.live = null; persist();
+    ui.hud(); ui.pips();
+    $("card").hidden = true;
+    $("bustsub").textContent = why; $("stage").classList.add("busted");
+    $("room").classList.remove("alarm"); void $("room").offsetWidth; $("room").classList.add("alarm");
+    sfx.slam();
+    const settle = api("/api/bank", body({})).catch(() => null);
+    setTimeout(async () => {
+      $("stage").classList.remove("busted"); $("lock").style.opacity = ".12";
+      document.documentElement.style.setProperty("--lc", "#ff4d5e");
+      $("lootart").style.display = "none";
+      $("lvl").textContent = "CHAIN BROKEN";
+      $("said").textContent = wanted ? `these would've opened it with ${wanted.toUpperCase()}` : "these would've opened it";
+      $("gain").textContent = ""; $("quip").textContent = pick(QUIPS[0]);
+      $("reveal").classList.add("on");
+      $("form").hidden = true; $("next").hidden = false;
+      const last = game.index >= game.safes.length - 1;
+      $("next").textContent = last ? "GET OUT ▸" : "NEXT · ANY KEY ▸";
+      ui.msg(last ? "that's the night." : "the chain's broken. next door takes any letter", true);
+      $("next").focus();
+      await settle;
+      try {
+        const data = await api(`/api/reveal?seam=${encodeURIComponent(d.id)}&pid=${saved.pid}`);
+        const pool = data.answers.filter((a) => !wanted || firstLetter(a.name) === wanted).reverse();
+        const some = pool.length <= 8 ? pool : Array.from({ length: 8 }, (_, i) => pool[Math.round((i * (pool.length - 1)) / 7)]);
+        $("quip").innerHTML = `<div class="would">${some.map((a) => `<span><em style="background:${LEVELS[a.tier].hex}">${a.score}</em>${esc(a.name)}</span>`).join("")}</div>`;
+      } catch (e) { /* the list is a nicety */ }
+    }, 1700);
+  }
+
+  function nextDoor() { if (!game) return; game.index++; persist(); if (game.index >= game.safes.length) return finish(false); openDoor(); }
+  function shake(el) { el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); }
+  const rank = (take) => RANKS.find(([share]) => take / 150 >= share)[1];
+
+  function finish(resumed) {
+    clearInterval(timer);
+    const r = rank(game.take);
+    const longest = game.results.reduce((m, x) => Math.max(m, x.chain || 0), 0);
+    if (game.kind === "daily" && !resumed && saved.lastFinished !== game.number) {
+      saved.streak = saved.lastFinished === game.number - 1 ? (saved.streak || 0) + 1 : 1;
+      saved.lastFinished = game.number; saved.best = Math.max(saved.best || 0, game.take);
     }
-    if (hit.ok) return win(hit, false);
-
-    game.tries--;
-    drawTries();
-    Sfx.miss();
-    replay($("form"), "nope");
-    if (game.tries <= 0) return bust("Three wrong and the shutters come down. This door pays nothing.", NOTES.bust);
-    note(pick(NOTES.miss));
-    $("miss").textContent = `“${text}” isn't one.`;
-    $("ans").value = "";
-    game.busy = false;
-    $("crack").disabled = false;
-    resumeClock();
-    $("ans").focus({ preventScroll: true });
-  }
-
-  function outOfTime() {
-    if (!game || game.busy) return;
-    game.busy = true;
-    if (game.risk) return bust(`The lock ran down. You had ${game.held.score} and now you don't.`, NOTES.slow);
-    bust("The lock ran down before you cracked it. This door pays nothing.", NOTES.slow);
-  }
-
-  /** A door that opened. `swapped` means it was the risked second answer. */
-  function win(hit, swapped) {
-    const safe = game.safes[game.index];
-    const lvl = level(hit.tier);
-    const result = { id: safe.id, name: hit.name, tier: lvl, score: hit.score, k: PAY[lvl], helped: game.helped || !!hit.assisted };
-    if (swapped) game.results[game.index] = result;
-    else game.results.push(result);
-    game.settled = swapped; // a risked answer is paid by the server straight away
-    game.busy = false;
-    game.held = { name: hit.name, score: hit.score };
-    if (saved.progress && game.kind === "daily") saved.progress.live = undefined;
-    persist();
-
-    $("play").style.setProperty("--lc", colour(lvl));
-    $("loot").innerHTML = Art.loot(lvl);
-    $("levelStamp").textContent = Art.levelName(lvl);
-    $("levelStamp").style.fontSize = lvl === 5 ? "17px" : "";
-    $("score").textContent = hit.score;
-    $("said").textContent = hit.name;
-    $("lootName").textContent = Art.lootName(lvl);
-    $("pay").textContent = game.kind === "daily" ? "+" + money(PAY[lvl]) : game.kind === "past" ? "cold case, no pay" : "practice, no pay";
-    const canRisk = !swapped && !game.riskUsed && hit.score < 100 && hit.deeper > 0;
-    $("risk").hidden = !canRisk;
-    $("riskHelp").textContent = canRisk
-      ? `One risk a night. Use it here and you get one more answer: rarer than ${hit.score} trades up, anything else and this door pays nothing.`
-      : swapped ? "Traded up. That was your risk for tonight."
-      : game.riskUsed ? "You've used tonight's risk, so this one's banked."
-      : "That's as rare as it gets. Nothing to risk it for.";
-    $("take").textContent = game.index + 1 >= game.safes.length ? "Take it and go" : "Take it";
-    exhibit().classList.add("is-open");
-    setState("open");
-    $("ans").blur();
-    drawPips();
-    Sfx.crack(hit.score);
-    Sfx.payout(lvl);
-    Sfx.stamp(1.25);
-    const line = swapped ? pick(NOTES.riskWon)
-      : lvl >= 3 && NOTES.door[safe.id] && Math.random() < 0.7 ? NOTES.door[safe.id]
-      : pick(NOTES.win[lvl] || NOTES.win[1]);
-    note("");
-    const here = game;
-    const index = game.index;
-    setTimeout(() => { if (game === here && game.index === index && $("play").dataset.s === "open") note(line); }, 1100);
-    $("take").focus({ preventScroll: true });
-  }
-
-  /** A door that is lost: three misses, the clock, or a risk that did not come off. */
-  function bust(why, lines, alreadySettled) {
-    pauseClock();
-    const safe = game.safes[game.index];
-    const result = { id: safe.id, name: "", tier: 0, score: 0, k: 0, helped: game.helped };
-    if (game.results.length > game.index) game.results[game.index] = result;
-    else game.results.push(result);
-    if (saved.progress && game.kind === "daily") saved.progress.live = undefined;
-    persist();
-    drawPips();
-
-    $("shutQ").textContent = safe.prompt.replace(/\.$/, "");
-    $("shutWhy").textContent = why;
-    $("wouldLabel").hidden = true;
-    $("seeAll").hidden = true;
-    $("would").className = "would";
-    $("would").innerHTML = "";
-    $("next").textContent = game.index + 1 >= game.safes.length ? "See the take" : "Next door";
-    const box = exhibit();
-    box.classList.remove("is-open");
-    box.classList.add("is-shut");
-    setState("shut");
-    $("ans").blur();
-    replay($("app"), "shake");
-    Sfx.slam();
-    note(pick(lines));
-    game.settled = true;
-
-    // Lock it on the server, then show a spread of answers that would have opened it.
-    const here = game;
-    const index = game.index;
-    (alreadySettled ? Promise.resolve() : bank(safe.id))
-      .then(() => api(`/api/reveal?seam=${encodeURIComponent(safe.id)}&pid=${saved.pid}`))
-      .then((data) => {
-        if (game !== here || game.index !== index || !data.answers.length) return;
-        const all = data.answers.slice().reverse(); // most obvious first
-        const chip = (a) => `<div><b style="background:${colour(level(a.tier))}">${a.score}</b><span>${esc(a.name)}</span></div>`;
-        const count = all.length <= 10 ? all.length : 8;
-        const some = [];
-        for (let i = 0; i < count; i++) some.push(all[Math.round((i * (all.length - 1)) / Math.max(1, count - 1))]);
-        $("would").innerHTML = some.map(chip).join("");
-        $("wouldLabel").textContent = `These would've worked · ${count} of ${all.length}`;
-        $("wouldLabel").hidden = false;
-        $("seeAll").hidden = all.length <= count;
-        $("seeAll").textContent = `See all ${all.length}`;
-        $("seeAll").onclick = () => {
-          $("would").className = "would all";
-          $("would").innerHTML = all.map(chip).join("");
-          $("seeAll").hidden = true;
-        };
-      })
-      .catch(() => {});
-    $("next").focus({ preventScroll: true });
-  }
-
-  function takeIt() {
-    if (!game || $("play").dataset.s !== "open") return;
-    Sfx.coin();
-    if (!game.settled) bank(game.safes[game.index].id);
-    advance(true);
-  }
-
-  async function riskIt() {
-    if (!game || $("play").dataset.s !== "open" || game.settled || game.riskUsed || game.busy) return;
-    game.busy = true;
-    Sfx.click();
-    try {
-      await api("/api/risk", playBody());
-    } catch (err) {
-      game.busy = false;
-      game.riskUsed = err.status === 409 && /risk/i.test(err.message);
-      $("risk").hidden = true;
-      $("riskHelp").textContent = game.riskUsed ? "You've already used tonight's risk." : "Couldn't reach the vault, so this one's banked.";
-      persist();
-      return;
-    }
-    // From here the held loot is gone unless the next answer beats it.
-    game.riskUsed = true;
-    game.results[game.index] = { id: game.safes[game.index].id, name: "", tier: 0, score: 0, k: 0, helped: game.helped };
-    persist();
-    openDoor(true);
-  }
-
-  /** Move on to the next door, or to the results after the last one. */
-  function advance(through) {
-    game.index++;
-    persist();
-    const next = () => {
-      if (game.index >= game.safes.length) return finish(false);
-      openDoor(false);
-    };
-    if (!through) return next();
-    exhibit().classList.add("through");
-    setTimeout(next, 460);
-  }
-
-  // ---------- The one hint of the night ----------
-  async function useHint() {
-    if (!game || game.busy || game.risk || game.hintUsed || $("play").dataset.s !== "idle") return;
-    $("hint").disabled = true;
-    try {
-      const out = await api("/api/use", playBody({ item: "hint" }));
-      game.hintUsed = true;
-      game.helped = true;
-      persist();
-      Sfx.pin(0); Sfx.pin(0.18); Sfx.pin(0.3);
-      note(`psst. try something starting with ${out.letter}.`);
-    } catch (err) {
-      if (err.status === 409 && /used/i.test(err.message)) { game.hintUsed = true; persist(); }
-      $("miss").textContent = err.message;
-      Sfx.no();
-    }
-    drawTickets();
-  }
-
-  // ---------- Wardrobe ----------
-  const GROUPS = { coat: ["black", "tux", "ginger", "siamese"], hat: ["", "cap", "beret", "tophat", "crown"], neck: ["", "bow", "pearls", "scarf"] };
-  const WEAR_NAME = { black: "Black", "": "None", tux: "Tuxedo", ginger: "Ginger", siamese: "Siamese", cap: "Flat cap", beret: "Beret", tophat: "Top hat", crown: "Crown", bow: "Bow tie", pearls: "Pearls", scarf: "Scarf" };
-  let wanted = null;
-  const owns = (id) => id === "" || id === "black" || !!bag.items[id];
-  function drawWardrobe() {
-    const fit = Art.fit();
-    for (const [slot, box] of [["coat", "wCoat"], ["hat", "wHat"], ["neck", "wNeck"]]) {
-      $(box).innerHTML = GROUPS[slot].map((id) => {
-        const it = bag.shop.find((i) => i.id === id);
-        const out = !owns(id) && it && it.out;
-        const look = Object.assign({ coat: "black", hat: "", neck: "" }, { [slot]: id });
-        return `<button type="button" class="sw${fit[slot] === id ? " on" : ""}${owns(id) ? "" : " priced"}${out ? " out" : ""}" data-slot="${slot}" data-wear="${id}">` +
-          `${Art.cat(46, look)}<span>${owns(id) ? WEAR_NAME[id] : out ? "Not tonight" : it ? money(it.price) : "..."}</span></button>`;
-      }).join("");
-    }
-    setBalance(bag.balance);
-    const it = wanted && bag.shop.find((i) => i.id === wanted);
-    $("offer").hidden = !it || owns(wanted);
-    if (it && !owns(wanted)) {
-      const short = it.price - bag.balance;
-      $("offerText").textContent = `${it.name}. ${it.blurb} ${money(it.price)}.` + (short > 0 ? ` You're ${money(short)} short.` : "");
-      $("buy").disabled = short > 0;
-    }
-    Art.dress();
-  }
-  function wear(slot, id) {
-    const fit = Object.assign({}, Art.fit());
-    fit[slot] = id;
-    saved.fit = fit;
+    if (game.kind !== "free") { saved.archive = saved.archive || {}; saved.archive[game.number] = { take: game.take }; }
     save();
-    Art.fit(fit);
+    $("endlab").textContent = game.kind === "daily" ? `Case ${three(game.number)} · tonight you were a` : game.kind === "past" ? `Cold case ${three(game.number)} · you were a` : "Practice · you were a";
+    $("rank").textContent = r;
+    $("ring").innerHTML = game.results.map((x, i) => (i ? `<span class="link${x.chain > 1 ? "" : " off"}" aria-hidden="true"></span>` : "") +
+      `<div class="row"><span class="s" style="background:${LEVELS[x.level].hex}">${x.level ? x.score : "×"}</span><span class="a">${x.level ? esc(x.name) : "Locked out"}<small>${esc(x.prompt)}</small></span><span class="k">${money(x.pay)}</span></div>`).join("");
+    $("endline").textContent = `${money(game.take)} taken · longest chain ${longest}` + (game.kind === "daily" ? ` · streak ${saved.streak || 1} · new doors at midnight` : "");
+    $("share").textContent = "COPY RESULT";
+    $("end").classList.add("on"); $("rank").focus();
+    if (!resumed) sfx.open(Math.max(1, Math.min(5, longest)));
+    if (game.kind === "daily") api("/api/finish", { pid: saved.pid, n: game.number }).then((f) => {
+      if (f && f.ok && f.players > 1) $("endline").textContent += ` · crew ${f.place} of ${f.players} tonight`;
+    }).catch(() => {});
   }
-  function pickWear(button) {
-    const id = button.dataset.wear;
-    const slot = button.dataset.slot;
-    Sfx.click();
-    if (owns(id)) {
-      wanted = null;
-      wear(slot, id);
-      note(pick(["very me.", "i look expensive.", "yes. this.", "don't laugh."]), "wNote");
-    } else {
-      const it = bag.shop.find((i) => i.id === id);
-      wanted = it && !it.out ? id : null;
-      note(it && it.out ? "not in tonight. check back." : "ooh. buy me that.", "wNote");
-    }
-    drawWardrobe();
-  }
-  async function buy() {
-    const it = bag.shop.find((i) => i.id === wanted);
-    if (!it) return;
-    $("buy").disabled = true;
-    try {
-      const out = await api("/api/buy", { pid: saved.pid, item: it.id, qty: 1 });
-      bag.items = out.items;
-      bag.balance = out.balance;
-      Sfx.coin();
-      wear(it.slot, it.id);
-      wanted = null;
-      note("money well spent.", "wNote");
-    } catch (err) {
-      if (err.data && typeof err.data.balance === "number") { bag.balance = err.data.balance; bag.items = err.data.items || bag.items; }
-      note(err.status === 402 ? "we can't afford it. yet." : "the till's jammed. try again.", "wNote");
-      Sfx.no();
-    }
-    drawWardrobe();
+  function shareText() {
+    const sq = ["⬛", "⬜", "🟩", "🟦", "🟪", "🟨"];
+    const longest = game.results.reduce((m, x) => Math.max(m, x.chain || 0), 0);
+    const head = game.kind === "daily" ? `Lootle #${game.number}` : game.kind === "past" ? `Lootle #${game.number} (cold case)` : "Lootle practice";
+    return `${head}: ${money(game.take)}, ${rank(game.take).toLowerCase()}\n${game.results.map((x) => sq[x.level]).join("")} chain ${longest}\nlootle.app`;
   }
 
-  // ---------- Old cases ----------
-  const jobDate = (n) => new Date(EPOCH + (n - 1) * 86400000)
-    .toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
-  function drawArchive(text) {
-    if (text) $("archiveNote").textContent = text;
+  // ---------- Cold cases ----------
+  function openCases(note) {
     const done = saved.archive || {};
     let html = "";
     for (let n = today - 1; n >= 1; n--) {
       const d = done[n];
-      const midway = saved.pastProgress && saved.pastProgress.number === n && !d;
-      const status = d ? (d.take != null ? money(d.take) : "Closed") : midway ? "Back in" : "Open";
-      html += `<button type="button" data-job="${n}" class="${d ? "done" : ""}"${d ? " disabled" : ""}>` +
-        `<span class="num">${three(n)}</span><span class="when">${jobDate(n)}</span><span class="go">${status}</span></button>`;
+      const when = new Date(EPOCH + (n - 1) * 86400000).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+      html += `<button type="button" data-job="${n}"${d ? " disabled" : ""}><span class="num">${three(n)}</span><span class="when">${when}</span><span class="go">${d ? (d.take != null ? money(d.take) : "DONE") : "PLAY"}</span></button>`;
     }
-    $("jobs").innerHTML = html || '<p class="ty small dim">Nothing here yet. Come back tomorrow.</p>';
+    $("jobs").innerHTML = html || '<p class="small">Nothing here yet. Come back tomorrow.</p>';
+    if (note) $("cases").querySelector(".small").textContent = note;
+    $("cases").classList.add("on");
   }
+  function closeAll() { document.querySelectorAll(".over").forEach((o) => o.classList.remove("on")); }
 
-  // ---------- Results ----------
-  const statsLine = () => `Streak ${saved.streak || 1} · Best ${money(saved.best || 0)} · Stash ${money(bag.balance)}. New doors at midnight.`;
-
-  function finish(resumed) {
-    pauseClock();
-    const take = takeOf(game.results);
-    const doors = game.safes.length;
-    const title = rank(take, doors);
-    game.done = true;
-    game.index = doors;
-    if (game.kind === "daily" && !resumed && saved.lastFinished !== game.number) {
-      saved.streak = saved.lastFinished === game.number - 1 ? (saved.streak || 0) + 1 : 1;
-      saved.lastFinished = game.number;
-      saved.played = (saved.played || 0) + 1;
-      saved.best = Math.max(saved.best || 0, take);
+  // ---------- Wiring ----------
+  $("teethT").setAttribute("d", teeth(false)); $("teethB").setAttribute("d", teeth(true));
+  drawLock();
+  $("form").addEventListener("submit", (e) => { e.preventDefault(); submit($("ans").value, false); });
+  $("ans").addEventListener("input", () => { sfx.key(); $("pill").hidden = true; });
+  $("pill").addEventListener("click", () => { const n = $("pill").dataset.name; $("ans").value = n; submit(n, true); });
+  $("next").addEventListener("click", nextDoor);
+  $("share").addEventListener("click", async () => { try { await navigator.clipboard.writeText(shareText()); $("share").textContent = "COPIED"; } catch (e) { $("endline").textContent = shareText(); } });
+  $("endclose").addEventListener("click", closeAll);
+  $("mRules").addEventListener("click", () => $("rules").classList.add("on"));
+  $("mCases").addEventListener("click", () => openCases());
+  $("mPractice").addEventListener("click", () => start("free"));
+  const setSound = () => { $("mSound").setAttribute("aria-pressed", String(!muted)); };
+  $("mSound").addEventListener("click", () => { muted = !muted; saved.muted = muted; save(); setSound(); });
+  setSound();
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("[data-close]")) {
+      closeAll();
+      if ($("rules").dataset.then) { delete $("rules").dataset.then; start("daily"); }
     }
-    if (game.kind === "daily") saved.rank = title;
-    if (game.kind !== "free") {
-      saved.archive = saved.archive || {};
-      saved.archive[game.number] = { take, levels: game.results.map((r) => r.tier) };
-    }
-    save();
-    if (!resumed) Sfx.fanfare();
-
-    $("rCase").textContent = game.kind === "daily" ? `CASE No. ${three(game.number)} · CLOSED`
-      : game.kind === "past" ? `COLD CASE ${three(game.number)} · CLOSED` : "PRACTICE RUN";
-    $("rTake").textContent = money(take);
-    $("rStamp").textContent = title;
-    $("rNote").textContent = pick(NOTES.rank[title]);
-    $("rStats").textContent = game.kind === "daily" ? statsLine()
-      : game.kind === "past" ? "From the cold cases, so none of this went in the stash." : "Practice doesn't pay. The real job does.";
-    $("share").textContent = "Brag about it";
-    game.crowd = "";
-    $("rows").innerHTML = game.safes.map((safe, i) => {
-      const r = game.results[i] || { tier: 0, k: 0, name: "" };
-      const lvl = level(r.tier);
-      return `<li data-safe="${esc(safe.id)}" data-mine="${esc(r.name || "")}"><button type="button" class="row" aria-expanded="false">` +
-        `<span class="chip" style="background:${colour(lvl)};color:${lvl ? "var(--ink)" : "var(--paper)"}">${lvl ? r.score : "×"}</span>` +
-        `<span class="a">${lvl ? esc(r.name) : "Locked out"}<small>${esc(safe.prompt)}</small></span>` +
-        `<span class="m">${money(r.k || 0)}</span></button><div class="answers" hidden></div></li>`;
-    }).join("");
-    show("result");
-    const stamp = $("rStamp");
-    stamp.style.animation = "none";
-    void stamp.offsetWidth;
-    stamp.style.animation = "";
-    if (game.kind === "daily") {
-      const here = game;
-      setTimeout(() => showCrowd(here, 2), 700);
-      // The last door may still be paying in; refresh the stash once it has.
-      setTimeout(() => loadBag().then(() => { if (game === here && screen === "result") $("rStats").textContent = statsLine() + (here.crowdLine ? " " + here.crowdLine : ""); }), 900);
-    } else {
-      loadBag();
-    }
-  }
-
-  /** Tapping a door in the results lists every answer it would have taken. */
-  async function toggleAnswers(row) {
-    const li = row.closest("li");
-    const box = li.querySelector(".answers");
-    const open = box.hidden;
-    box.hidden = !open;
-    row.setAttribute("aria-expanded", String(open));
-    if (!open || li.dataset.loaded) return;
-    li.dataset.loaded = "1";
-    box.textContent = "Having a look...";
-    try {
-      const data = await api(`/api/reveal?seam=${encodeURIComponent(li.dataset.safe)}&pid=${saved.pid}`);
-      box.innerHTML = data.answers.map((a) =>
-        `<div class="${a.name === li.dataset.mine ? "mine" : ""}"><b style="background:${colour(level(a.tier))}">${a.score}</b><span>${esc(a.name)}</span></div>`).join("") +
-        `<p>${data.answers.length} answers, rarest first.${data.note ? " " + esc(data.note) : ""}</p>`;
-    } catch (err) {
-      li.dataset.loaded = "";
-      box.textContent = "Couldn't load these. Tap again to retry.";
-    }
-  }
-
-  /** Ask where this job stands against everyone else who has finished tonight. */
-  async function showCrowd(job, tries) {
-    try {
-      const r = await api("/api/finish", { pid: saved.pid, n: job.number });
-      if (job !== game || screen !== "result") return;
-      if (!r.ok) {
-        if (tries > 1) setTimeout(() => showCrowd(job, tries - 1), 1500);
-        return;
-      }
-      const crews = r.players.toLocaleString("en-GB");
-      // With only a handful of players a ranking means nothing, so say less.
-      job.crowd = r.players >= 5 && r.place === 1 ? `Top take so far out of ${crews} crews` : "";
-      job.crowdLine = r.players < 5 ? `Crew number ${crews} through the door tonight.`
-        : r.place === 1 ? `Top take so far tonight, out of ${crews} crews.`
-        : `Place ${r.place} of ${crews} crews so far tonight.`;
-      $("rStats").textContent = statsLine() + " " + job.crowdLine;
-    } catch (err) { /* the results stand without it */ }
-  }
-
-  function shareText() {
-    const head = game.kind === "daily" ? `Lootle #${game.number}` : game.kind === "past" ? `Lootle #${game.number} (cold case)` : "Lootle practice run";
-    const take = takeOf(game.results);
-    return `${head}: ${money(take)}, ${rank(take, game.safes.length)}${game.crowd ? "\n" + game.crowd : ""}\n` +
-      `${game.results.map((r) => SQUARES[level(r.tier)] + (r.helped ? "\u{1F4A1}" : "")).join("")}\nhttps://lootle.app`;
-  }
-  async function share() {
-    Sfx.click();
-    const text = shareText();
-    try {
-      await navigator.clipboard.writeText(text);
-      $("share").textContent = "Copied";
-    } catch (e) {
-      $("rStats").style.whiteSpace = "pre-line";
-      $("rStats").style.userSelect = "all";
-      $("rStats").textContent = text;
-    }
-  }
-
-  // ---------- Boot ----------
-  function boot() {
-    let ticks = "";
-    for (let i = 0; i < 25; i++) ticks += `<i class="${i % 5 === 0 ? "major" : ""}" style="transform:translate(-50%,-50%) rotate(${i * 14.4}deg) translateY(-49px)"></i>`;
-    $("ticks").innerHTML = ticks;
-    $("teethA").setAttribute("d", Art.teeth(false));
-    $("teethB").setAttribute("d", Art.teeth(true));
-    const legend = Art.legend((lvl) => money(PAY[lvl]));
-    $("legend").innerHTML = legend;
-    $("legend2").innerHTML = legend;
-    setMute();
-    drawFront();
-
-    $("breakin").addEventListener("click", () => start("daily"));
-    for (const id of ["practice", "practice2"]) $(id).addEventListener("click", () => start("free"));
-    $("form").addEventListener("submit", (e) => { e.preventDefault(); submitGuess($("ans").value.trim()); });
-    $("ans").addEventListener("input", () => { Sfx.key(); hideSuggest(); });
-    $("suggest").addEventListener("click", () => {
-      const name = $("suggest").dataset.name;
-      $("ans").value = name;
-      submitGuess(name, true);
-    });
-    $("take").addEventListener("click", takeIt);
-    $("risk").addEventListener("click", riskIt);
-    $("hint").addEventListener("click", useHint);
-    $("next").addEventListener("click", () => { if (game && $("play").dataset.s === "shut") { Sfx.click(); advance(false); } });
-    $("share").addEventListener("click", share);
-    $("buy").addEventListener("click", buy);
-    $("mute").addEventListener("click", () => {
-      Sfx.muted = !Sfx.muted;
-      saved.muted = Sfx.muted;
-      save();
-      setMute();
-      Sfx.click();
-    });
-    $("jobs").addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (b && !b.disabled) start("past", Number(b.dataset.job));
-    });
-    $("rows").addEventListener("click", (e) => {
-      const row = e.target.closest(".row");
-      if (row) toggleAnswers(row);
-    });
-    document.addEventListener("click", (e) => {
-      const go = e.target.closest("[data-go]");
-      if (go) { e.preventDefault(); Sfx.click(); return show(go.dataset.go); }
-      const sw = e.target.closest("[data-wear]");
-      if (sw) pickWear(sw);
-    });
-    // Browsers only allow sound after a tap, so wake it on the first one.
-    document.addEventListener("pointerdown", () => Sfx.wake(), { once: true });
-    loadBag();
-  }
-
-  boot();
+    const job = e.target.closest("[data-job]");
+    if (job && !job.disabled) start("past", Number(job.dataset.job));
+  });
+  document.addEventListener("pointerdown", () => ac(), { once: true });
+  // First visit: show the rules once, then straight into tonight's job.
+  if (!saved.seenChain) { saved.seenChain = 1; save(); $("rules").classList.add("on"); $("rules").dataset.then = "start"; }
+  else start("daily");
 })();
