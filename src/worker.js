@@ -390,9 +390,8 @@ async function payOut(env, live, pid, n, seamId, score, chainLength = 1) {
   return orElse(player(env, pid).credit(n, seamId, core.chainPay(core.levelOf(score), chainLength)), { paid: 0 });
 }
 
-/** The letter the next door will need, or "" if that door has no answer starting with it. */
+/** The letter the next door will need: the answer's last letter, or one further back if that door can't take it. */
 function nextKey(n, seamId, nextId, name) {
-  const letter = core.lastLetter(name);
   let next = null;
   if (n === 0) next = BY_ID.get(String(nextId || ""));
   else {
@@ -400,7 +399,7 @@ function nextKey(n, seamId, nextId, name) {
     next = doors[doors.findIndex((s) => s.id === seamId) + 1] || null;
   }
   if (!next) return "";
-  return core.hasLetter(next, letter) ? letter : "";
+  return core.keyFor(next, name);
 }
 
 async function handleAnswer(request, env) {

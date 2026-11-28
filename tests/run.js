@@ -300,7 +300,19 @@ for (const s of bank) {
   ok(core.firstLetter("The Bahamas") === "b" && core.firstLetter("Éire") === "e" && core.firstLetter("  'Ohio'") === "o", "first letters skip the, accents and quotes");
   ok(core.lastLetter("Saluki") === "i" && core.lastLetter("Côte d'Ivoire!") === "e" && core.lastLetter("Area 51") === "a", "last letters skip punctuation and digits");
   const dogs = seam("dog-breeds");
-  ok(core.hasLetter(dogs, "s") && core.hasLetter(dogs, "") && !core.hasLetter({ answers: [["Pug", 1]] }, "z"), "a door without the letter waives the key");
+  ok(core.hasLetter(dogs, "s") && core.hasLetter(dogs, "") && !core.hasLetter({ answers: [["Pug", 1]] }, "z"), "hasLetter checks a door for a letter");
+  const nextDoor = { answers: [["Egypt", 1], ["Kenya", 1], ["Yemen", 2]] };
+  ok(core.keyFor(nextDoor, "Turkey") === "y", "the key is the answer's last letter when the next door can take it");
+  ok(core.keyFor({ answers: [["Egypt", 1], ["Kenya", 1]] }, "Turkey") === "e", "with no Y answers the key slips back to E, never to any letter");
+  ok(core.keyFor({ answers: [["Kenya", 1]] }, "Turkey") === "k", "and further back if it has to");
+  {
+    let free = 0, total = 0;
+    for (let d = core.V4_FROM; d < core.V4_FROM + 60; d++) {
+      const doors = core.jobDoors({ packs: PACKS, vaults: VAULTS, short: SHORT, hard: HARD, easy: EASY, mid: MID, open: OPEN }, d);
+      for (let i = 0; i < 4; i++) for (const [name] of doors[i].answers) { total++; if (!core.keyFor(doors[i + 1], name)) free++; }
+    }
+    ok(free / total < 0.002, `the chain almost never waives the letter (${free} of ${total})`);
+  }
   ok(core.chainPay(3, 1) === core.TIER_K[3] && core.chainPay(3, 3) === 3 * core.TIER_K[3] && core.chainPay(5, 9) === 5 * core.TIER_K[5], "loot is multiplied by the chain, up to five");
   ok(core.chainPay(0, 4) === 0, "nothing times anything is nothing");
   const slipped = core.matchDetail(dogs, "Akta");

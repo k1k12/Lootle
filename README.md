@@ -34,8 +34,9 @@ letter the next answer has to start with.
   $150K.
 - Three wrong or out of time and the chain breaks. That door pays nothing,
   the multiplier goes back to one and the next door takes any letter.
-- If no answer on the next door starts with your letter, that door takes any
-  letter too, and the chain carries on.
+- The chain only breaks when you lose a door. If nothing on the next door
+  starts with your last letter, the key slips back to the letter before it
+  (Turkey with no Y answers gives an E), and further back if it has to.
 - Loot from the daily job goes into your stash. Old jobs ("cold cases") can
   each be played once for fun, and practice deals five random doors. Neither
   pays or counts towards the rarity numbers.

@@ -117,6 +117,28 @@ export function hasLetter(seam, letter) {
 }
 
 /** A door pays its loot times the length of the chain it extends (capped at five). */
+/** How many of a door's answers start with a letter. */
+export function letterCount(seam, letter) {
+  return seam.answers.reduce((c, [name]) => c + (firstLetter(name) === letter ? 1 : 0), 0);
+}
+
+/**
+ * The key an answer hands to the next door: its last letter, or if fewer
+ * than KEY_MIN of that door's answers start with it, the letter before,
+ * and so on back through the answer. The chain never waives the letter.
+ */
+export const KEY_MIN = 1;
+export function keyFor(next, name) {
+  const letters = [...normalise(name).replace(/[^a-z]/g, "")].reverse();
+  let best = "", most = 0;
+  for (const l of letters) {
+    const c = letterCount(next, l);
+    if (c >= KEY_MIN) return l;
+    if (c > most) { best = l; most = c; }
+  }
+  return best;
+}
+
 export function chainPay(level, length) {
   return (TIER_K[level] || 0) * Math.max(1, Math.min(5, length));
 }

@@ -10,6 +10,7 @@
   const norm = (t) => String(t).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/&/g, " and ")
     .replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim().replace(/^the /, "").replace(/^an? (?=.{3})/, "");
   const firstLetter = (t) => (norm(t).match(/[a-z]/) || [""])[0];
+  const lastLetter = (t) => (norm(t).match(/[a-z](?=[^a-z]*$)/) || [""])[0];
 
   const SECONDS = 25;
   const TRIES = 3;
@@ -285,7 +286,11 @@
       ui.hud(); ui.pips();
       const last = game.index >= game.safes.length - 1;
       if (game.key && !last) setTimeout(sfx.link, 600);
-      ui.msg(last ? "last door. get out." : game.key ? `next key: ${game.key.toUpperCase()}` : "next door takes any letter");
+      const end = lastLetter(hit.name);
+      ui.msg(last ? "last door. get out."
+        : !game.key ? "next door takes any letter"
+        : game.key !== end ? `nothing on the next door starts with ${end.toUpperCase()}. the key slips back to ${game.key.toUpperCase()}`
+        : `next key: ${game.key.toUpperCase()}`);
       $("form").hidden = true; $("next").hidden = false;
       $("next").textContent = last ? "GET OUT ▸" : game.key ? `NEXT · KEY ${game.key.toUpperCase()} ▸` : "NEXT · ANY KEY ▸";
       $("next").focus();
