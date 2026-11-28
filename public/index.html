@@ -9,10 +9,10 @@
   <link rel="canonical" href="https://lootle.app/">
   <meta property="og:url" content="https://lootle.app/">
   <title>Lootle: the daily trivia heist</title>
-  <meta name="description" content="Lootle is a free daily trivia game. Five vault doors a night: every question has hundreds of right answers, and the rarer yours is, the bigger the loot.">
-  <meta name="theme-color" content="#0f1437">
+  <meta name="description" content="Lootle is a free daily trivia game. A daily trivia heist. Five doors, hundreds of right answers each. Rarer answers go deeper, and the last letter of each answer is the key to the next door.">
+  <meta name="theme-color" content="#090c1c">
   <meta property="og:title" content="Lootle: the daily heist">
-  <meta property="og:description" content="Five doors a night. Don't say the obvious.">
+  <meta property="og:description" content="Every answer is the key to the next door.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Lootle">
   <meta property="og:image" content="https://lootle.app/og.png">
@@ -21,152 +21,103 @@
   <meta property="og:image:alt" content="Lootle, the daily trivia heist.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Lootle: the daily heist">
-  <meta name="twitter:description" content="Five doors a night. Don't say the obvious.">
+  <meta name="twitter:description" content="Every answer is the key to the next door.">
   <meta name="twitter:image" content="https://lootle.app/og.png">
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Lootle","url":"https://lootle.app/","description":"A daily trivia game with a heist theme. Five vault doors a night, and rarer answers win bigger loot.","applicationCategory":"GameApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"GBP"}}</script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23070919'/%3E%3Cpath d='M3 12q13-7 26 0v6q-13 8-26 0z' fill='%23f5b82e'/%3E%3Ccircle cx='10.500' cy='15' r='3.500' fill='%23070919'/%3E%3Ccircle cx='21.500' cy='15' r='3.500' fill='%23070919'/%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;700&family=Special+Elite&family=Caveat:wght@700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&family=Space+Mono:wght@400;700&display=swap">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
+<div class="room" id="room" aria-hidden="true">
+  <div class="grid"></div><canvas id="dust"></canvas>
+  <div class="roll"></div><div class="scan"></div><div class="vig"></div>
+  <div class="cam px">CAM 04 · <span id="clock">02:13:07</span> · REC <b>●</b></div>
+</div>
+
 <main class="app" id="app">
-
-<section class="screen on" id="front" aria-label="Front page">
-  <div class="topline ty"><span id="caseNo">CASE No. 001</span><span class="gold" id="streak" hidden></span></div>
-  <div class="hero">
-    <h1 class="logo d" aria-label="Lootle">L<svg class="face" viewBox="0 0 100 70" aria-hidden="true"><path d="M6 34L8 2l22 16h40L92 2l2 32v14q0 20-44 20T6 48z" fill="#fbf6ea"/><rect x="4" y="24" width="92" height="34" rx="17" fill="#f5b82e"/><ellipse cx="29" cy="41" rx="11" ry="9.500" fill="#070919"/><ellipse cx="71" cy="41" rx="11" ry="9.500" fill="#070919"/><ellipse cx="29" cy="41" rx="3" ry="8" fill="#f5b82e"/><ellipse cx="71" cy="41" rx="3" ry="8" fill="#f5b82e"/></svg>TLE</h1>
-    <p class="hw tagline">don't say the obvious.</p>
+  <div class="hud">
+    <div class="box take"><div class="lab">Take</div><div class="v px" id="take">$0K</div></div>
+    <div class="mid">
+      <div class="logo px" aria-label="Lootle">L<svg viewBox="0 0 120 60" aria-hidden="true"><rect x="5" y="12" width="62" height="36" rx="18" fill="none" stroke="#d9a441" stroke-width="9"/><rect x="53" y="12" width="62" height="36" rx="18" fill="none" stroke="#e9ecff" stroke-width="9"/></svg>TLE</div>
+      <div class="pips" id="pips" aria-hidden="true"></div>
+      <div class="lab" id="doorlab">Door 1 of 5</div>
+    </div>
+    <div class="box chainb"><div class="lab">Chain</div><div class="v px" id="chain">×0</div></div>
   </div>
-  <div class="front-side">
-    <div class="card suspect">
-      <span class="clip" aria-hidden="true"></span>
-      <div class="mug" data-cat="74" data-plate="" role="img" aria-label="Chess the cat, holding a case number"></div>
-      <div class="who">
-        <div class="sm">Suspect</div>
-        <div class="d name">Chess</div>
-        <div class="ty facts">A cat. Obviously.<br>Rank: <span id="rank">Lookout</span><br>Stash: <span class="stash">$0K</span></div>
-        <span class="stamp small red">At large</span>
-      </div>
+
+  <div class="stage" id="stage">
+    <div class="card" id="card">
+      <div class="lab" id="cardlab"></div>
+      <h1 class="q" id="q"></h1>
+      <div class="keyline"><span class="keychip" id="keychip">?</span><span id="keytext"></span></div>
+      <div class="count px" id="count"></div>
     </div>
-    <p class="ty blurb" id="pitch">Five doors tonight. What's behind them is yours if you can open them.</p>
-    <button class="btn" id="breakin" type="button">Break in</button>
-    <nav class="tabs" aria-label="More">
-      <button type="button" class="tab" data-go="archive"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v4H4zM6 11v8h12v-8M10 14h4"/></svg><span>Cases</span></button><button type="button" class="tab" id="practice"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>Practice</span></button><button type="button" class="tab" data-go="wardrobe"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10L6 3l5 4h2l5-4 1 7v5q0 5-7 5t-7-5zM9 12v2M15 12v2"/></svg><span>Wardrobe</span></button><button type="button" class="tab" data-go="how"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.500 9.500q0-3 2.500-3t2.500 2.500q0 2-2.500 3v1.500M12 17.500v.5"/></svg><span>Rules</span></button><button type="button" class="tab" id="mute" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16 9q2 3 0 6M18.500 6.500q4 5.500 0 11"/></svg><span>Sound</span></button>
-    </nav>
-    <noscript><p>Lootle needs JavaScript to run.</p></noscript>
+    <div class="tag px" id="tag" hidden></div>
+    <svg id="lock" viewBox="0 0 360 400" role="img" aria-label="The lock. Rarer answers push the key deeper."></svg>
+    <div class="reveal" id="reveal" aria-live="polite">
+      <svg class="lootart" id="lootart" viewBox="0 0 36 36" aria-hidden="true"></svg>
+      <div class="lvl px" id="lvl"></div><div class="said" id="said"></div><div class="gain px" id="gain"></div><div class="quip" id="quip"></div>
+    </div>
+    <div class="shut t" aria-hidden="true"><svg viewBox="0 0 400 100" preserveAspectRatio="none"><path id="teethT" fill="#c9303f"/><path d="M0 40H400M0 60H400" stroke="#8f1b28" stroke-width="3"/></svg></div>
+    <div class="shut b" aria-hidden="true"><svg viewBox="0 0 400 100" preserveAspectRatio="none"><path id="teethB" fill="#c9303f"/><path d="M0 40H400M0 60H400" stroke="#8f1b28" stroke-width="3"/></svg></div>
+    <div class="bust-msg"><div class="big px">BUSTED</div><div class="sub" id="bustsub"></div></div>
   </div>
-</section>
 
-<section class="screen" id="play" aria-label="Play">
-  <div class="topline"><div class="pips" id="pips" aria-hidden="true"></div><span class="ty gold" id="tonight"></span></div>
-  <div class="play-main">
-    <div class="card exhibit">
-      <div class="arch" id="arch">
-        <div class="inside" id="inside"><div class="rays" aria-hidden="true"></div><div class="floor" aria-hidden="true"></div><div class="loot" id="loot"></div></div>
-        <div class="half left" aria-hidden="true"></div><div class="half right" aria-hidden="true"></div>
-        <div class="dial" id="dial" role="timer" aria-label="Time left"><div class="ring"><div class="ticks" id="ticks" aria-hidden="true"></div><div class="knob d" id="secs">25</div></div><i class="pointer" aria-hidden="true"></i></div>
-        <div class="shutter top" aria-hidden="true"><div class="slab"></div><svg viewBox="0 0 312 44" preserveAspectRatio="none"><path id="teethA"/></svg></div>
-        <div class="shutter bot" aria-hidden="true"><svg viewBox="0 0 312 44" preserveAspectRatio="none"><path id="teethB"/></svg><div class="slab"></div></div>
-        <span class="stamp busted" id="busted">Busted</span>
-      </div>
-      <span class="stamp level red" id="levelStamp"></span>
-      <div class="under s-idle">
-        <div class="ty doorno" id="doorNo">DOOR 1 OF 5</div>
-        <h2 class="d q" id="q"></h2>
-        <div class="tries"><span id="tries" role="img" aria-label="Tries left"></span><span class="ty miss" id="miss" aria-live="polite"></span></div>
-      </div>
-      <div class="under s-open" aria-live="polite">
-        <div class="won"><span class="d score" id="score"></span><div><div class="d said" id="said"></div><div class="ty got"><span id="lootName"></span> · <b id="pay"></b></div></div></div>
-      </div>
-      <div class="under s-shut">
-        <div class="ty caption"><span id="shutQ"></span><b>$0</b></div>
-      </div>
-    </div>
-    <div class="play-side">
-      <p class="hw note" id="note" aria-live="polite"></p>
-      <div class="s-idle">
-        <div class="tickets"><button type="button" class="ticket" id="hint">Hint · 1 left</button><span class="ticket risk" id="riskLeft">Risk · 1 left</span></div>
-        <p class="ty small" id="help"></p>
-        <button type="button" class="suggest" id="suggest" hidden></button>
-        <form class="answer" id="form" autocomplete="off">
-          <label for="ans" class="sr">Your answer</label>
-          <input id="ans" class="ty" type="text" placeholder="your answer" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" maxlength="60">
-          <button class="btn" type="submit" id="crack">Crack it</button>
-        </form>
-      </div>
-      <div class="s-open">
-        <p class="ty small" id="riskHelp"></p>
-        <div class="two"><button class="btn" id="take" type="button">Take it</button><button class="btn risky" id="risk" type="button">Risk it</button></div>
-      </div>
-      <div class="s-shut">
-        <p class="ty small" id="shutWhy"></p>
-        <div class="sm dim" id="wouldLabel" hidden>These would've worked</div>
-        <div class="would" id="would"></div>
-        <button type="button" class="linkish ty" id="seeAll" hidden>See all</button>
-        <button class="btn" id="next" type="button">Next door</button>
-      </div>
-    </div>
+  <div class="bar" id="bar">
+    <button class="pill" id="pill" type="button" hidden></button>
+    <form class="ansrow" id="form" autocomplete="off">
+      <label for="ans" class="sr">Your answer</label>
+      <input id="ans" placeholder="your answer" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" maxlength="40">
+      <button class="btn px" id="go" type="submit">TRY</button>
+    </form>
+    <button class="btn wide px" id="next" type="button" hidden></button>
+    <div class="timer" id="timer"><i id="tbar"></i></div>
+    <div class="status"><span id="msg" aria-live="polite">rarer answers push the key deeper</span><span class="tries" id="tries" role="img" aria-label="Tries left"></span></div>
   </div>
-</section>
-
-<section class="screen" id="result" aria-label="Results">
-  <div class="topline ty"><span id="rCase"></span><span class="gold" id="rTake"></span></div>
-  <div class="result-main">
-    <div>
-      <div class="sm dim" id="rLead">On the lookout for</div>
-      <div class="rankwrap"><span class="stamp big gold" id="rStamp" tabindex="-1"></span></div>
-      <p class="hw note" id="rNote"></p>
-      <p class="ty small dim" id="rStats" aria-live="polite"></p>
-    </div>
-    <div>
-      <div class="card file"><span class="clip" aria-hidden="true"></span><ol class="rows" id="rows" aria-label="Each door: the score out of 100, your answer and what it paid. Tap a door to see every answer."></ol></div>
-      <div class="sm dim legend-title">What's behind each level</div>
-      <div class="legend" id="legend"></div>
-      <button class="btn" type="button" id="share">Brag about it</button>
-      <nav class="tabs" aria-label="More">
-        <button type="button" class="tab" data-go="archive"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v4H4zM6 11v8h12v-8M10 14h4"/></svg><span>Cases</span></button><button type="button" class="tab" id="practice2"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>Practice</span></button><button type="button" class="tab" data-go="wardrobe"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10L6 3l5 4h2l5-4 1 7v5q0 5-7 5t-7-5zM9 12v2M15 12v2"/></svg><span>Wardrobe</span></button><button type="button" class="tab" data-go="how"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.500 9.500q0-3 2.500-3t2.500 2.500q0 2-2.500 3v1.500M12 17.500v.5"/></svg><span>Rules</span></button>
-      </nav>
-    </div>
-  </div>
-</section>
-
-<section class="screen page" id="wardrobe" aria-label="Wardrobe">
-  <div class="pagehead"><button class="back" data-go="back" type="button" aria-label="Back">&#8592;</button><h2 class="d">Wardrobe</h2><span class="ty gold stash">$0K</span></div>
-  <div class="card dress"><div class="mug big" id="model" data-cat="150" data-plate="CHESS" role="img" aria-label="Chess in the current outfit"></div></div>
-  <p class="hw note" id="wNote">does nothing. looks great.</p>
-  <div class="offer" id="offer" hidden><span class="ty" id="offerText"></span><button class="btn" id="buy" type="button">Buy</button></div>
-  <h3 class="sm dim">Coat</h3><div class="swatches" id="wCoat"></div>
-  <h3 class="sm dim">Hat</h3><div class="swatches" id="wHat"></div>
-  <h3 class="sm dim">Neck</h3><div class="swatches" id="wNeck"></div>
-  <p class="ty small dim">Clothes are bought once with loot from the nightly job. The crown only turns up some nights.</p>
-</section>
-
-<section class="screen page" id="archive" aria-label="Old cases">
-  <div class="pagehead"><button class="back" data-go="back" type="button" aria-label="Back">&#8592;</button><h2 class="d">Cold cases</h2><span></span></div>
-  <p class="ty small dim" id="archiveNote">Missed a night? Play it here, once. It won't pay and it won't touch your streak.</p>
-  <div class="jobs" id="jobs"></div>
-</section>
-
-<section class="screen page" id="how" aria-label="Rules">
-  <div class="pagehead"><button class="back" data-go="back" type="button" aria-label="Back">&#8592;</button><h2 class="d">Rules</h2><span></span></div>
-  <ol class="rules">
-    <li><b class="d">Five doors a night.</b><span>One question on each. Every question has loads of right answers.</span></li>
-    <li><b class="d">Don't say the obvious.</b><span>Every answer scores out of 100 for how rare it is. The rarer it is, the better the loot behind the door.</span></li>
-    <li><b class="d">Beat the lock.</b><span>You get 25 seconds and three tries. Three wrong, or the lock runs down, and the shutters come down on nothing.</span></li>
-    <li><b class="d">Take it, or risk it.</b><span>Once a night you can risk a door: one more answer. Rarer trades up. Anything else and that door pays nothing.</span></li>
-    <li><b class="d">One hint.</b><span>Once a night Chess will tell you the first letter of a good answer. Ask before you answer.</span></li>
-    <li><b class="d">Spend it on the cat.</b><span>Loot goes in the stash. The stash buys Chess clothes. That is the entire economy.</span></li>
-  </ol>
-  <div class="sm dim legend-title">What's behind each level</div>
-  <div class="legend" id="legend2"></div>
-  <p class="hw note">new doors at midnight. same ones for everybody.</p>
-  <button class="btn" data-go="front" type="button">Got it</button>
-</section>
 </main>
 
-<script src="/js/art.js"></script>
+<nav class="menu" aria-label="Menu">
+  <button type="button" id="mCases" class="px">CASES</button>
+  <button type="button" id="mPractice" class="px">PRACTICE</button>
+  <button type="button" id="mSound" class="px" aria-pressed="true">SOUND</button>
+  <button type="button" id="mRules" class="px" aria-label="How to play">?</button>
+</nav>
+
+<div class="over" id="rules" role="dialog" aria-label="How to play">
+  <div class="panel">
+    <ul class="rules">
+      <li><b>Five doors a night.</b> One question each, with hundreds of right answers. You only see a door when you reach it.</li>
+      <li><b>Rarer answers go deeper</b> into the lock, and the loot gets better.</li>
+      <li><b>The last letter of your answer is the next key.</b> Say Saluki and the next door only opens for an I.</li>
+      <li><b>Keep the chain going</b> and every door pays more. Three wrong, or out of time, and the chain breaks.</li>
+    </ul>
+    <button class="btn wide px" type="button" data-close>GOT IT</button>
+  </div>
+</div>
+
+<div class="over" id="cases" role="dialog" aria-label="Cold cases">
+  <div class="panel">
+    <div class="lab center">Cold cases</div>
+    <p class="small">Missed a night? Play it once. It won't pay and won't touch your streak.</p>
+    <div class="jobs" id="jobs"></div>
+    <button class="btn wide px dim" type="button" data-close>CLOSE</button>
+  </div>
+</div>
+
+<div class="over" id="end" role="dialog" aria-label="Results">
+  <div class="panel">
+    <div class="lab center" id="endlab">Tonight you were a</div>
+    <div class="rank px" id="rank" tabindex="-1"></div>
+    <div class="ring" id="ring"></div>
+    <p class="small" id="endline"></p>
+    <button class="btn wide px" id="share" type="button">COPY RESULT</button>
+    <button class="btn wide px dim" id="endclose" type="button">CLOSE</button>
+  </div>
+</div>
+
 <script src="/js/game.js"></script>
 </body>
 </html>

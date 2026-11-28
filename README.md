@@ -6,8 +6,8 @@ A daily trivia game with a heist theme. Play it at [lootle.app](https://lootle.a
 
 Everyone gets the same five vault doors each night. Each door is a question
 with a lot of right answers, and the answer fewer people give is worth more.
-Asked to name a country, "France" gets you loose change. "Djibouti" might be
-the perfect crime.
+The catch: every answer is the key to the next door. Its last letter is the
+letter the next answer has to start with.
 
 ## Contents
 
@@ -21,25 +21,24 @@ the perfect crime.
 
 ## How to play
 
-- The lock on each door is the clock: 25 seconds and three tries.
-- Every answer scores from 12 to 100 for how rare it is, and the score
-  decides what is behind the door: loose change ($1K), a wad of cash ($2K),
-  gold bars ($4K), a painting ($7K) or a diamond ($10K, only for a score of
-  100). A perfect night is $50K.
-- Once a night you can risk a door instead of taking the loot. You get one
-  more answer: a rarer one trades up, anything else and the shutters come
-  down on nothing.
-- Once a night Chess (the cat) will give you the first letter of a decent
-  answer. A door opened with a hint is marked in your shared result.
-- A job gets harder as it goes: two broad questions (name a country, name a
-  dog breed), one narrower list, one open prompt (name something you would
-  find in a fridge), then a hard specialist list.
-- Loot from the daily job goes into your stash, and the stash buys clothes
-  for the cat. They do nothing. One of them only turns up some nights.
-- Old jobs ("cold cases") can each be played once for fun. They pay nothing
-  and do not count towards streaks or the rarity numbers.
-- The daily job can be played once. Practice deals five random doors and
-  does not count either.
+- You only see a door when you reach it. Door 1 takes any answer. After
+  that, the next answer has to start with the last letter of your previous
+  one: say Saluki, and the next door only opens for an I.
+- Each door has 25 seconds and three tries. A guess with the wrong first
+  letter is turned away without costing a try.
+- Every answer scores from 12 to 100 for how rare it is. Rarer answers push
+  the key deeper into the lock: loose change ($1K), a tidy sum ($2K), a rare
+  find ($4K), a big score ($7K) or the perfect crime ($10K, only for 100).
+- Keep the chain going and each door pays more: the loot is multiplied by
+  how many doors in a row you have opened, up to five. A perfect night is
+  $150K.
+- Three wrong or out of time and the chain breaks. That door pays nothing,
+  the multiplier goes back to one and the next door takes any letter.
+- If no answer on the next door starts with your letter, that door takes any
+  letter too, and the chain carries on.
+- Loot from the daily job goes into your stash. Old jobs ("cold cases") can
+  each be played once for fun, and practice deals five random doors. Neither
+  pays or counts towards the rarity numbers.
 
 ## Running it locally
 
@@ -53,8 +52,7 @@ npm test       # checks the question bank, matching and rarity maths
 npm run dev    # serves the game at http://localhost:8787
 ```
 
-`npm run dev` keeps storage on your machine. The judge for open prompts
-(below) runs on Cloudflare even in local development, so Wrangler asks you
+`npm run dev` keeps storage on your machine. The judge (below) runs on Cloudflare even in local development, so Wrangler asks you
 to log in once with `npx wrangler login`. A free account is enough.
 
 ## How it is built
@@ -65,7 +63,7 @@ browser rather than loaded from files.
 
 | Path | What is in it |
 | --- | --- |
-| `public/` | The front end. `js/game.js` is the game, `js/art.js` draws the cat, her wardrobe and the loot as SVG. No answers. |
+| `public/` | The front end. `js/game.js` is the whole game: the lock, the pixel loot and the sounds. No answers. |
 | `src/worker.js` | The Worker: `/api/*` routes and the per-safe store |
 | `src/core.js` | Spelling correction, rarity maths and the daily schedule |
 | `src/seams/` | The question bank, in packs. Never sent to the browser. |
@@ -85,9 +83,11 @@ finished it. Nothing in the page source gives an answer away.
 
 ### Spelling
 
-Guesses are corrected on the server. Case, accents and punctuation are
-ignored, and one to three typos are forgiven depending on the length of the
-answer, so "Kenia" and "Saskatchewen" both count. A guess is never corrected
+Guesses are checked on the server. Case, accents and punctuation are
+ignored. A single slip in a word of five letters or more is fixed without
+asking ("Dalmation" counts). Anything further off, up to three typos
+depending on the length, is offered back as a "did you mean" first, and
+only counts if you take it. A guess is never corrected
 if it is the name of something else, which stops "South Korea" being
 accepted as "North Korea".
 
@@ -103,10 +103,11 @@ answers the results screen says its numbers are mostly an estimate.
 
 ### The judge
 
-Four doors in five are checked against a written list. The open prompts
-("name something you would find in a fridge") cannot be: nobody can list
-every sensible answer. So when an answer to an open prompt is not on the
-list, the Worker asks a small language model on Workers AI one yes-or-no
+The chain means you are often hunting for an answer that starts with one
+letter, so the lists have to be long. Doors are only dealt from lists of 60
+answers or more, plus the open prompts ("name something you would find in a
+fridge"), which nobody can list in full. When an answer is not on the list,
+the Worker asks a small language model on Workers AI one yes-or-no
 question: would a quiz host accept this?
 
 - Each answer is only ever asked about once per door. The verdict is stored,
@@ -123,8 +124,8 @@ Each safe has its own small SQLite database (a Durable Object) holding the
 answer counts and which anonymous player ids have played it. A third store per daily job keeps
 every finisher's total, which is how the results screen can say where you
 placed. A second store per player
-id holds the stash and bought items, so they cannot be edited in the
-browser. Streaks and
+id holds the stash and the chain (the letter you owe the next door and how
+long the run is), so neither can be edited in the browser. Streaks and
 progress are kept in the player's browser. There are no accounts and no
 personal data is collected.
 
@@ -148,22 +149,23 @@ To report a security problem, see [SECURITY.md](SECURITY.md).
 3. Run `npm test`. It checks that every door has at least three answers, a
    tier 1 and a tier 6, and that no spelling points at two different answers.
 
-Packs sit on four shelves in `src/seams/index.js`, and a five-door job takes
-from each in order:
+Packs sit on four shelves in `src/seams/index.js`. From job 19 a night is
+dealt in this order:
 
-| Shelf | Doors | What goes on it |
-| --- | --- | --- |
-| `EASY` | 1 and 2 | Broad questions with 100 or more answers (`easy-NN.js`) |
-| `MID` | 3 | Narrower lists (`pack-NN.js`, `vault-NN.js`, `mid-NN.js`) |
-| `OPEN` | 4 | Prompts with no fixed list (`open-NN.js`) |
-| `HARD` | 5 | Specialist lists (`hard-NN.js`) |
+| Door | Taken from |
+| --- | --- |
+| 1 and 2 | `EASY`: broad questions with 60 or more answers |
+| 3 and 5 | `OPEN`: prompts with no fixed list |
+| 4 | `MID` and `VAULTS` lists with 60 or more answers |
+
+`HARD` lists are too short for the chain and are not dealt at the moment.
 
 To stop a safe being dealt without breaking old jobs in the archive, add its
 id to `RETIRED` in `src/seams/index.js` rather than deleting it.
 
 Always add packs at the end. The schedule deals each pack in order, so
-appending a pack never changes which doors earlier days had. Jobs 1 to 10 had seven safes and job 11 had ten doors. They are still dealt
-the old way, so the archive plays as it did.
+appending a pack never changes which doors earlier days had. Jobs 1 to 10 had seven safes, job 11 had ten doors and jobs 12 to 18 used
+the v3 deal. They are still dealt the old way, so the archive plays as it did.
 
 ## Deploying
 
@@ -179,7 +181,7 @@ Releases go through a pull request from `dev` into `main`, as described in
 
 - Workers AI gives 10,000 "Neurons" a day free. A verdict costs a handful, so
   that is well over a thousand new answers a day; past it, unlisted answers
-  to open prompts are marked wrong until the next day.
+  are marked wrong until the next day.
 - Player ids are random values created in the browser. Someone determined
   can make new ones to see answers early or skew the counts. That is fine
   for a casual game, but it would need bot protection before adding prizes

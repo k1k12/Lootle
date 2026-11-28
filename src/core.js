@@ -94,7 +94,36 @@ export function matchDetail(seam, input, lexicon) {
   }
   if (!fuzzy || tie) return null;
   if (lexicon && lexicon.has(guess)) return null;
-  return { name: fuzzy, corrected: true };
+  return { name: fuzzy, corrected: true, dist: fuzzyDist };
+}
+
+// ---------- The chain ----------
+
+/** First letter of an answer, ignoring "the", accents and punctuation. */
+export function firstLetter(text) {
+  const m = normalise(text).match(/[a-z]/);
+  return m ? m[0] : "";
+}
+
+/** Last letter of an answer: the key to the next door. */
+export function lastLetter(text) {
+  const m = normalise(text).match(/[a-z](?=[^a-z]*$)/);
+  return m ? m[0] : "";
+}
+
+/** Whether a door has any answer starting with this letter. If not, its key is waived. */
+export function hasLetter(seam, letter) {
+  return !letter || seam.answers.some(([name]) => firstLetter(name) === letter);
+}
+
+/** A door pays its loot times the length of the chain it extends (capped at five). */
+export function chainPay(level, length) {
+  return (TIER_K[level] || 0) * Math.max(1, Math.min(5, length));
+}
+
+/** A spelling slip small enough to fix without asking: one letter off in a word of five or more. */
+export function slip(match, guess) {
+  return !!match && match.corrected && match.dist <= 1 && normalise(guess).length >= 5;
 }
 
 /** Canonical answer name for a guess, or null. */
@@ -359,9 +388,47 @@ export const V3_FROM = 12;
 export const FIVE = { easy: 2, mid: 1, open: 1, hard: 1 };
 const FIVE_ORDER = ["easy", "mid", "open", "hard"];
 
+/**
+ * From this job on, answers chain: each one has to start with the last letter
+ * of the one before. Narrow lists can't take that, so only lists with plenty
+ * of answers are dealt: two broad questions, an open prompt, a big list and
+ * another open prompt. The judge accepts sensible answers that aren't listed.
+ */
+export const V4_FROM = 19;
+export const BIG_LIST = 60;
+const CHAIN_ORDER = [["easy", 0xc4a100], ["easy", 0xc4a100], ["open", 0xc4a201], ["big", 0xc4a302], ["open", 0xc4a201]];
+const chainCache = new WeakMap();
+function chainShelves(pools) {
+  let shelves = chainCache.get(pools);
+  if (!shelves) {
+    const big = (list) => list.filter((s) => s.answers.length >= BIG_LIST);
+    const easy = big(pools.easy.flat());
+    const seen = new Set(easy.map((s) => s.id));
+    const wide = big([...pools.mid.flat(), ...(pools.vaults || []).flat()]).filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true)));
+    shelves = { easy: [easy], open: [pools.open.flat()], big: [wide] };
+    chainCache.set(pools, shelves);
+  }
+  return shelves;
+}
+function chainDoors(pools, number) {
+  const shelves = chainShelves(pools);
+  const per = { easy: 2, open: 2, big: 1 };
+  const used = { easy: 0, open: 0, big: 0 };
+  const out = [];
+  for (const [kind, seed] of CHAIN_ORDER) {
+    const start = (number - V4_FROM) * per[kind] + used[kind]++;
+    for (let skip = 0; skip < 50; skip++) {
+      const safe = fromPool(shelves[kind], seed, start + skip * per[kind] * 997, NONE, 1);
+      if (!out.some((s) => s.id === safe.id)) { out.push(safe); break; }
+    }
+  }
+  return out;
+}
+
 /** The doors of a job. `pools` also carries { easy, mid, open } for ten-door jobs. */
 export function jobDoors(pools, number) {
   if (number < V2_FROM || !pools.open || !pools.open.flat().length) return jobSafes(pools, number);
+  if (number >= V4_FROM && pools.easy && pools.mid) return chainDoors(pools, number);
   const five = number >= V3_FROM;
   const out = [];
   // Each shelf is one long shuffled queue. Five-door jobs carry on from where
@@ -379,10 +446,11 @@ export function jobDoors(pools, number) {
   return out;
 }
 
-/** A practice run: five random doors in the same easy-to-hard order. */
+/** A practice run: five random doors, dealt the same way as a chained job. */
 export function randomDoors(pools) {
-  const pick = (kind) => shuffled(pools[kind].flat(), Math.random).slice(0, FIVE[kind]);
-  return FIVE_ORDER.flatMap(pick);
+  const shelves = chainShelves(pools);
+  const deck = { easy: shuffled(shelves.easy[0], Math.random), open: shuffled(shelves.open[0], Math.random), big: shuffled(shelves.big[0], Math.random) };
+  return CHAIN_ORDER.map(([kind]) => deck[kind].shift());
 }
 
 // ---------- The judge for open prompts ----------
